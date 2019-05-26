@@ -26,6 +26,15 @@ parser.add_argument('--niter', type=int, default=120000,
 parser.add_argument('--pre-train', type=int, default=-1,
                      help='set 1 when you use pre-trained models')
 
+## Additions for training on UCF-101
+parser.add_argument('--i_epochs_checkpoint', type=int, default=100,
+                     help='set num of epochs between checkpoints, default: 100')
+parser.add_argument('--i_epochs_saveV', type=int, default=50,
+                     help='set num of epochs between save fake video, default: 50')
+parser.add_argument('--i_epochs_display', type=int, default=10,
+                     help='set num of epochs between print information, default: 10')
+#### End of additions for UCF-101
+
 args       = parser.parse_args()
 cuda       = args.cuda
 ngpu       = args.ngpu
@@ -33,6 +42,11 @@ batch_size = args.batch_size
 n_iter     = args.niter
 pre_train  = args.pre_train
 
+## Addition for training on UCF-101
+n_epochs_saveV      = args.i_epochs_saveV
+n_epochs_display    = args.i_epochs_display
+n_epochs_check      = args.i_epochs_checkpoint
+#### End of additions
 
 seed = 0
 torch.manual_seed(seed)
@@ -45,7 +59,7 @@ if cuda == True:
 
 current_path = os.path.dirname(__file__)
 resized_path = os.path.join(current_path, 'resized_data')
-files = glob.glob(resized_path+'/*')
+files = glob.glob(resized_path+'/*/*')
 videos = [ skvideo.io.vread(file) for file in files ]
 # transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
 videos = [ video.transpose(3, 0, 1, 2) / 255.0 for video in videos ]
@@ -202,6 +216,8 @@ def gen_z(n_frames):
 
 start_time = time.time()
 
+print(f"Starting training: CUDA is { 'On' if cuda == True else 'Off'}")
+
 for epoch in range(1, n_iter+1):
     ''' prepare real images '''
     # real_videos.size() => (batch_size, nc, T, img_size, img_size)
@@ -251,14 +267,14 @@ for epoch in range(1, n_iter+1):
     optim_Gi.step()
     optim_GRU.step()
 
-    if epoch % 100 == 0:
+    if epoch % n_epochs_display == 0:
         print('[%d/%d] (%s) Loss_Di: %.4f Loss_Dv: %.4f Loss_Gi: %.4f Loss_Gv: %.4f Di_real_mean %.4f Di_fake_mean %.4f Dv_real_mean %.4f Dv_fake_mean %.4f'
               % (epoch, n_iter, timeSince(start_time), err_Di, err_Dv, err_Gi, err_Gv, Di_real_mean, Di_fake_mean, Dv_real_mean, Dv_fake_mean))
 
-    if epoch % 1000 == 0:
+    if epoch % n_epochs_saveV == 0:
         save_video(fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0), epoch)
 
-    if epoch % 10000 == 0:
+    if epoch % n_epochs_check == 0:
         checkpoint(dis_i, optim_Di, epoch)
         checkpoint(dis_v, optim_Dv, epoch)
         checkpoint(gen_i, optim_Gi, epoch)
