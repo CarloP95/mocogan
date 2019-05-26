@@ -27,7 +27,7 @@ for file in files:
     #### End of additions.
     
     os.system("ffmpeg -i %s -pix_fmt yuv420p -vf crop=96:96:42:24 %s.mp4" %
-             (file, os.path.join(saveDir, currentName)))
+             (file, os.path.join(saveDir, currentName)[:-4]))
 
 ''' script for reducing size '''
 # # resize to 96x76

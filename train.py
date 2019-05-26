@@ -60,7 +60,7 @@ if cuda == True:
 current_path = os.path.dirname(__file__)
 resized_path = os.path.join(current_path, 'resized_data')
 files = glob.glob(resized_path+'/*/*')
-videos = [ skvideo.io.vread(file) for file in files ]
+videos = [ skvideo.io.vread(file) for file in files ] #Param used in resize script.
 # transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
 videos = [ video.transpose(3, 0, 1, 2) / 255.0 for video in videos ]
 
