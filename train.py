@@ -121,8 +121,11 @@ def trim(video):
 # for input noises to generate fake video
 # note that noises are trimmed randomly from n_frames to T for efficiency
 def trim_noise(noise):
+    print("-----TRIMMING NOISE-----")
+    print(f"Noise Size: {noise.size()}")
     start = np.random.randint(0, noise.size(1) - (T+1))
     end = start + T
+    print("-----END OF TRIMMING NOISE-----")
     return noise[:, start:end, :, :, :]
 
 def random_choice():
@@ -232,12 +235,15 @@ def bp_i(inputs, y, retain=False):
     return toReturnErr, outputs.data.mean()
 
 def bp_v(inputs, y, retain=False):
+    print("----BackPropagate_V-----")
+    print(inputs.size())
     label.resize_(inputs.size(0)).fill_(y)
     labelv = Variable(label)
     outputs = dis_v(inputs)
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
     toReturnErr = err.data[0] if err.size() == torch.Tensor().size() else err.item()
+    print("----End of BackPropagate_V-----")
     return toReturnErr, outputs.data.mean()
 
 
@@ -249,6 +255,7 @@ def gen_z(n_frames, batch_size = batch_size):
     print(f"BATCH_SIZE: {batch_size}")
     print(f"D_C: {d_C}")
     print(f"D_E: {d_E}")
+    print(f"nz: {nz}")
     z_C = Variable(torch.randn(batch_size, d_C))
     #  repeat z_C to (batch_size, n_frames, d_C)
     z_C = z_C.unsqueeze(1).repeat(1, n_frames, 1)
@@ -295,7 +302,7 @@ for epoch in range(1, n_iter+1):
 
         ''' prepare fake images '''
         # note that n_frames is sampled from video length distribution
-        n_frames = T + np.random.randint(0, real_videos.size()[3]) #video_lengths[np.random.randint(0, n_videos)]
+        n_frames = T + np.random.randint(0, real_videos.size()[2]) #video_lengths[np.random.randint(0, n_videos)]
         Z = gen_z(n_frames, batch_size)  # Z.size() => (batch_size, n_frames, nz, 1, 1)
         # trim => (batch_size, T, nz, 1, 1)
         Z = trim_noise(Z)
@@ -311,7 +318,11 @@ for epoch in range(1, n_iter+1):
         ''' train discriminators '''
         # video
         dis_v.zero_grad()
-        randomStartFrameIdx = np.random.randint(0, real_videos.size()[3] - T - 1)
+        randomStartFrameIdx = np.random.randint(0, real_videos.size()[2] - T - 1)
+        print("-----INFOS-----")
+        print(f"RandomStartFrame:{randomStartFrameIdx}")
+        print(f"Video Size:{real_videos.size()}")
+        print("-----END OF INFOS-----")
         croppedRealVideos = real_videos[:,:,randomStartFrameIdx: randomStartFrameIdx + T, :, :]
         err_Dv_real, Dv_real_mean = bp_v(croppedRealVideos, 0.9)
         err_Dv_fake, Dv_fake_mean = bp_v(fake_videos.detach(), 0)
