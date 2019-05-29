@@ -13,13 +13,13 @@ from torch.autograd import Variable
 
 from torch.utils.data import DataLoader
 from torchvision.datasets import DatasetFolder
-from torchvision.transforms import ToTensor, Lambda, Compose
+from torchvision.transforms import Lambda, Compose
 
 from models import Discriminator_I, Discriminator_V, Generator_I, GRU, UCF_101
 
 
 parser = argparse.ArgumentParser(description='Start trainning MoCoGAN.....')
-parser.add_argument('--cuda', type=int, default=-1,
+parser.add_argument('--cuda', type=int, default=1,
                      help='set -1 when you use cpu')
 parser.add_argument('--ngpu', type=int, default=1,
                      help='set the number of gpu you use')
@@ -69,6 +69,9 @@ files = glob.glob(resized_path+'/*/*')
 
 #transformation = Compose([ToTensor(), Lambda(lambda tensor: (tensor - tensor.mean() )/ tensor.std())])
 
+transformation = Compose([Lambda(lambda video: video.transpose(3, 0, 1, 2)/255.0),
+                            Lambda(lambda video: torch.FloatTensor(video))])
+
 filenameDictClassesIdx = "classInd.txt"
 dictClassesIdx = {}
 
@@ -76,7 +79,7 @@ with open(os.path.join(current_path, "ucfTrainTestlist", filenameDictClassesIdx)
     for line in file:
         dictClassesIdx[ line.split() [1]] = int( line.split() [0] )
 
-dataset = DatasetFolder(resized_path, skvideo.io.vread, ["mp4"], transform=Lambda(lambda video: video.transpose(3, 0, 1, 2)/255.0))
+dataset = DatasetFolder(resized_path, skvideo.io.vread, ["mp4"], transform= transformation)
 dataset.class_to_idx = dictClassesIdx
 
 
@@ -89,7 +92,6 @@ if (EXPLORATORY_DATA_ANALYSIS):
     #for line in files:
         #print (f"Started loading one of {len(files)} videos into memory... It will be fast.")
     video = skvideo.io.vread(files[0])
-    print(type(video))
     video = video.transpose(3, 0, 1 ,2) / 255.0
     video = torch.FloatTensor(video)
     #print (f"Ended transforming into tensor: size is { (video.nelement() * video.element_size()) / (1024 * 1024)} MB")
@@ -97,14 +99,12 @@ if (EXPLORATORY_DATA_ANALYSIS):
     # transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
     if (video.shape[0] < minimum ):
         minimum = video.shape[0] #Minimum is 180
-            
+
 
     print(minimum)
 
-    #    video = video.transpose(3, 0, 1, 2) / 255.0 
+    #    video = video.transpose(3, 0, 1, 2) / 255.0
 
-    
-    
 
 
 ''' prepare video sampling '''
@@ -133,6 +133,8 @@ def random_choice():
         X.append(video)
     X = torch.stack(X)
     return X
+
+
 
 # video length distribution
 #video_lengths = [video.shape[1] for video in videos]
@@ -226,7 +228,8 @@ def bp_i(inputs, y, retain=False):
     outputs = dis_i(inputs)
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
-    return err.data[0], outputs.data.mean()
+    toReturnErr = err.data[0] if err.size() == torch.Tensor().size() else err.item()
+    return toReturnErr, outputs.data.mean()
 
 def bp_v(inputs, y, retain=False):
     label.resize_(inputs.size(0)).fill_(y)
@@ -234,12 +237,18 @@ def bp_v(inputs, y, retain=False):
     outputs = dis_v(inputs)
     err = criterion(outputs, labelv)
     err.backward(retain_graph=retain)
-    return err.data[0], outputs.data.mean()
+    toReturnErr = err.data[0] if err.size() == torch.Tensor().size() else err.item()
+    return toReturnErr, outputs.data.mean()
 
 
 ''' gen input noise for fake video '''
 
 def gen_z(n_frames, batch_size = batch_size):
+    print("----Generating Z-----")
+    print(f"N_FRAMES: {n_frames}")
+    print(f"BATCH_SIZE: {batch_size}")
+    print(f"D_C: {d_C}")
+    print(f"D_E: {d_E}")
     z_C = Variable(torch.randn(batch_size, d_C))
     #  repeat z_C to (batch_size, n_frames, d_C)
     z_C = z_C.unsqueeze(1).repeat(1, n_frames, 1)
@@ -251,6 +260,7 @@ def gen_z(n_frames, batch_size = batch_size):
     # notice that 1st dim of gru outputs is seq_len, 2nd is batch_size
     z_M = gru(eps, n_frames).transpose(1, 0)
     z = torch.cat((z_M, z_C), 2)  # z.size() => (batch_size, n_frames, nz)
+    print("----End Generating Z-----")
     return z.view(batch_size, n_frames, nz, 1, 1)
 
 
@@ -273,8 +283,6 @@ for epoch in range(1, n_iter+1):
         batch_size = 16
         (real_videos, labels) = next(data_iter) #random_choice()
 
-        print(type(real_videos.numpy()))
-
         for (key, val) in dictClassesIdx.items():
             if ( val == labels.item() ):
                 print(key)
@@ -287,7 +295,7 @@ for epoch in range(1, n_iter+1):
 
         ''' prepare fake images '''
         # note that n_frames is sampled from video length distribution
-        n_frames = np.random.randint(0, real_videos.size()[2] - 1) #video_lengths[np.random.randint(0, n_videos)]
+        n_frames = T + np.random.randint(0, real_videos.size()[3]) #video_lengths[np.random.randint(0, n_videos)]
         Z = gen_z(n_frames, batch_size)  # Z.size() => (batch_size, n_frames, nz, 1, 1)
         # trim => (batch_size, T, nz, 1, 1)
         Z = trim_noise(Z)
@@ -303,7 +311,9 @@ for epoch in range(1, n_iter+1):
         ''' train discriminators '''
         # video
         dis_v.zero_grad()
-        err_Dv_real, Dv_real_mean = bp_v(real_videos, 0.9)
+        randomStartFrameIdx = np.random.randint(0, real_videos.size()[3] - T - 1)
+        croppedRealVideos = real_videos[:,:,randomStartFrameIdx: randomStartFrameIdx + T, :, :]
+        err_Dv_real, Dv_real_mean = bp_v(croppedRealVideos, 0.9)
         err_Dv_fake, Dv_fake_mean = bp_v(fake_videos.detach(), 0)
         err_Dv = err_Dv_real + err_Dv_fake
         optim_Dv.step()
