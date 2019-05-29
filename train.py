@@ -11,22 +11,28 @@ import torch
 from torch import nn, optim
 from torch.autograd import Variable
 
-from models import Discriminator_I, Discriminator_V, Generator_I, GRU
+from torch.utils.data import DataLoader
+from torchvision.datasets import DatasetFolder
+from torchvision.transforms import ToTensor, Lambda, Compose
+
+from models import Discriminator_I, Discriminator_V, Generator_I, GRU, UCF_101
 
 
 parser = argparse.ArgumentParser(description='Start trainning MoCoGAN.....')
-parser.add_argument('--cuda', type=int, default=1,
+parser.add_argument('--cuda', type=int, default=-1,
                      help='set -1 when you use cpu')
 parser.add_argument('--ngpu', type=int, default=1,
                      help='set the number of gpu you use')
-parser.add_argument('--batch-size', type=int, default=16,
-                     help='set batch_size, default: 16')
+parser.add_argument('--batch-size', type=int, default=1,
+                     help='set batch_size, default: 1')
 parser.add_argument('--niter', type=int, default=120000,
                      help='set num of iterations, default: 120000')
 parser.add_argument('--pre-train', type=int, default=-1,
                      help='set 1 when you use pre-trained models')
 
 ## Additions for training on UCF-101
+EXPLORATORY_DATA_ANALYSIS = False
+
 parser.add_argument('--i_epochs_checkpoint', type=int, default=100,
                      help='set num of epochs between checkpoints, default: 100')
 parser.add_argument('--i_epochs_saveV', type=int, default=50,
@@ -60,14 +66,48 @@ if cuda == True:
 current_path = os.path.dirname(__file__)
 resized_path = os.path.join(current_path, 'resized_data')
 files = glob.glob(resized_path+'/*/*')
-videos = [ skvideo.io.vread(file) for file in files ] #Param used in resize script.
-# transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
-videos = [ video.transpose(3, 0, 1, 2) / 255.0 for video in videos ]
+
+#transformation = Compose([ToTensor(), Lambda(lambda tensor: (tensor - tensor.mean() )/ tensor.std())])
+
+filenameDictClassesIdx = "classInd.txt"
+dictClassesIdx = {}
+
+with open(os.path.join(current_path, "ucfTrainTestlist", filenameDictClassesIdx)) as file:
+    for line in file:
+        dictClassesIdx[ line.split() [1]] = int( line.split() [0] )
+
+dataset = DatasetFolder(resized_path, skvideo.io.vread, ["mp4"])
+dataset.class_to_idx = dictClassesIdx
+
+
+dataloader = DataLoader(dataset, batch_size= batch_size, shuffle= True, num_workers= 8, pin_memory= True, drop_last= True)
+
+
+if (EXPLORATORY_DATA_ANALYSIS):
+
+    minimum = 12000
+    for line in files:
+        #print (f"Started loading one of {len(files)} videos into memory... It will be fast.")
+        video = skvideo.io.vread(files[0])
+        video = torch.FloatTensor(video)
+        #print (f"Ended transforming into tensor: size is { (video.nelement() * video.element_size()) / (1024 * 1024)} MB")
+        #print (f"Final memory would be about {(video.nelement() * video.element_size()) / (1024 * 1024 * 1024) * len(files)} GB")
+        # transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
+        if (video.shape[0] < minimum ):
+            minimum = video.shape[0] #Minimum is 180
+            
+
+    print(minimum)
+
+    #    video = video.transpose(3, 0, 1, 2) / 255.0 
+
+    
+    
 
 
 ''' prepare video sampling '''
 
-n_videos = len(videos)
+n_videos = len(dataset) #len(videos)
 T = 16
 
 # for true video
@@ -93,7 +133,7 @@ def random_choice():
     return X
 
 # video length distribution
-video_lengths = [video.shape[1] for video in videos]
+#video_lengths = [video.shape[1] for video in videos]
 
 
 ''' set models '''
@@ -197,7 +237,7 @@ def bp_v(inputs, y, retain=False):
 
 ''' gen input noise for fake video '''
 
-def gen_z(n_frames):
+def gen_z(n_frames, batch_size = batch_size):
     z_C = Variable(torch.randn(batch_size, d_C))
     #  repeat z_C to (batch_size, n_frames, d_C)
     z_C = z_C.unsqueeze(1).repeat(1, n_frames, 1)
@@ -221,51 +261,67 @@ print(f"Starting training: CUDA is { 'On' if cuda == True else 'Off'}")
 for epoch in range(1, n_iter+1):
     ''' prepare real images '''
     # real_videos.size() => (batch_size, nc, T, img_size, img_size)
-    real_videos = random_choice()
-    if cuda == True:
-        real_videos = real_videos.cuda()
-    real_videos = Variable(real_videos)
-    real_img = real_videos[:, :, np.random.randint(0, T), :, :]
 
-    ''' prepare fake images '''
-    # note that n_frames is sampled from video length distribution
-    n_frames = video_lengths[np.random.randint(0, n_videos)]
-    Z = gen_z(n_frames)  # Z.size() => (batch_size, n_frames, nz, 1, 1)
-    # trim => (batch_size, T, nz, 1, 1)
-    Z = trim_noise(Z)
-    # generate videos
-    Z = Z.contiguous().view(batch_size*T, nz, 1, 1)
-    fake_videos = gen_i(Z)
-    fake_videos = fake_videos.view(batch_size, T, nc, img_size, img_size)
-    # transpose => (batch_size, nc, T, img_size, img_size)
-    fake_videos = fake_videos.transpose(2, 1)
-    # img sampling
-    fake_img = fake_videos[:, :, np.random.randint(0, T), :, :]
+    # Get data iterator
+    data_iter = iter(dataloader) #Iterator
+    data_len = len(dataloader) #Num Batches
+    data_i = 0
 
-    ''' train discriminators '''
-    # video
-    dis_v.zero_grad()
-    err_Dv_real, Dv_real_mean = bp_v(real_videos, 0.9)
-    err_Dv_fake, Dv_fake_mean = bp_v(fake_videos.detach(), 0)
-    err_Dv = err_Dv_real + err_Dv_fake
-    optim_Dv.step()
-    # image
-    dis_i.zero_grad()
-    err_Di_real, Di_real_mean = bp_i(real_img, 0.9)
-    err_Di_fake, Di_fake_mean = bp_i(fake_img.detach(), 0)
-    err_Di = err_Di_real + err_Di_fake
-    optim_Di.step()
+    while data_i < data_len:
+        batch_size = 16
+        (real_videos, labels) = next(data_iter) #random_choice()
+
+        for (key, val) in dictClassesIdx.items():
+            if ( val == labels.item() ):
+                print(key)
+
+        if cuda == True:
+            real_videos = real_videos.cuda()
+        real_videos = Variable(real_videos)
+        real_img = real_videos[:, :, np.random.randint(0, T), :, :]
+
+        ''' prepare fake images '''
+        # note that n_frames is sampled from video length distribution
+        n_frames = np.random.randint(0, real_videos.size()[1] - 1) #video_lengths[np.random.randint(0, n_videos)]
+        Z = gen_z(n_frames, batch_size)  # Z.size() => (batch_size, n_frames, nz, 1, 1)
+        # trim => (batch_size, T, nz, 1, 1)
+        Z = trim_noise(Z)
+        # generate videos
+        Z = Z.contiguous().view(batch_size*T, nz, 1, 1)
+        fake_videos = gen_i(Z)
+        fake_videos = fake_videos.view(batch_size, T, nc, img_size, img_size)
+        # transpose => (batch_size, nc, T, img_size, img_size)
+        fake_videos = fake_videos.transpose(2, 1)
+        # img sampling
+        fake_img = fake_videos[:, :, np.random.randint(0, T), :, :]
+
+        ''' train discriminators '''
+        # video
+        dis_v.zero_grad()
+        err_Dv_real, Dv_real_mean = bp_v(real_videos, 0.9)
+        err_Dv_fake, Dv_fake_mean = bp_v(fake_videos.detach(), 0)
+        err_Dv = err_Dv_real + err_Dv_fake
+        optim_Dv.step()
+        # image
+        dis_i.zero_grad()
+        err_Di_real, Di_real_mean = bp_i(real_img, 0.9)
+        err_Di_fake, Di_fake_mean = bp_i(fake_img.detach(), 0)
+        err_Di = err_Di_real + err_Di_fake
+        optim_Di.step()
 
 
-    ''' train generators '''
-    gen_i.zero_grad()
-    gru.zero_grad()
-    # video. notice retain=True for back prop twice
-    err_Gv, _ = bp_v(fake_videos, 0.9, retain=True)
-    # images
-    err_Gi, _ = bp_i(fake_img, 0.9)
-    optim_Gi.step()
-    optim_GRU.step()
+        ''' train generators '''
+        gen_i.zero_grad()
+        gru.zero_grad()
+        # video. notice retain=True for back prop twice
+        err_Gv, _ = bp_v(fake_videos, 0.9, retain=True)
+        # images
+        err_Gi, _ = bp_i(fake_img, 0.9)
+        optim_Gi.step()
+        optim_GRU.step()
+
+        '''Increment index for Batch'''
+        data_i = data_i + 1
 
     if epoch % n_epochs_display == 0:
         print('[%d/%d] (%s) Loss_Di: %.4f Loss_Dv: %.4f Loss_Gi: %.4f Loss_Gv: %.4f Di_real_mean %.4f Di_fake_mean %.4f Dv_real_mean %.4f Dv_fake_mean %.4f'
