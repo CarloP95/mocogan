@@ -1,5 +1,13 @@
 # coding: utf-8
 
+## Additions for integration with UCF-101
+import os
+import skvideo.io
+from glob import glob
+from torch.utils.data import Dataset
+#### End of additions.
+
+
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -167,3 +175,37 @@ class GRU(nn.Module):
 class Flatten(nn.Module):
     def forward(self, input):
         return input.view(input.size(0), -1)
+
+
+## Addition for loading videos avoiding to get Out Of Memory
+
+class UCF_101(Dataset):
+    """
+        Summary:
+            A class that extends the abstract Dataset class to load lazily videos from disk.
+
+        Parameters
+        ----------
+
+        rootDir: string
+            Absolute path to the directory in which the subfolders of UCF-101 (named with "Action") are found.
+
+        videoHandler: module
+            Hook to add new module to handles video loading.
+    """
+
+    def __init__(self, rootDir, videoHandler = skvideo.io):
+        self.rootDir = os.path.join(os.path.dirname(__file__), rootDir)
+        self.videosPaths = glob(os.path.join(rootDir, "*", "*"))
+        self.videoHandler = videoHandler
+
+
+    def __len__(self):
+        return len(self.videosPaths)
+
+
+    def __getitem__(self, index):
+        return self.videoHandler.vread(self.videosPaths[index])
+
+
+#### End of Addition.

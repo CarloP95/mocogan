@@ -76,7 +76,7 @@ with open(os.path.join(current_path, "ucfTrainTestlist", filenameDictClassesIdx)
     for line in file:
         dictClassesIdx[ line.split() [1]] = int( line.split() [0] )
 
-dataset = DatasetFolder(resized_path, skvideo.io.vread, ["mp4"])
+dataset = DatasetFolder(resized_path, skvideo.io.vread, ["mp4"], transform=Lambda(lambda video: video.transpose(3, 0, 1, 2)/255.0))
 dataset.class_to_idx = dictClassesIdx
 
 
@@ -86,15 +86,17 @@ dataloader = DataLoader(dataset, batch_size= batch_size, shuffle= True, num_work
 if (EXPLORATORY_DATA_ANALYSIS):
 
     minimum = 12000
-    for line in files:
+    #for line in files:
         #print (f"Started loading one of {len(files)} videos into memory... It will be fast.")
-        video = skvideo.io.vread(files[0])
-        video = torch.FloatTensor(video)
-        #print (f"Ended transforming into tensor: size is { (video.nelement() * video.element_size()) / (1024 * 1024)} MB")
-        #print (f"Final memory would be about {(video.nelement() * video.element_size()) / (1024 * 1024 * 1024) * len(files)} GB")
-        # transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
-        if (video.shape[0] < minimum ):
-            minimum = video.shape[0] #Minimum is 180
+    video = skvideo.io.vread(files[0])
+    print(type(video))
+    video = video.transpose(3, 0, 1 ,2) / 255.0
+    video = torch.FloatTensor(video)
+    #print (f"Ended transforming into tensor: size is { (video.nelement() * video.element_size()) / (1024 * 1024)} MB")
+    #print (f"Final memory would be about {(video.nelement() * video.element_size()) / (1024 * 1024 * 1024) * len(files)} GB")
+    # transpose each video to (nc, n_frames, img_size, img_size), and devide by 255
+    if (video.shape[0] < minimum ):
+        minimum = video.shape[0] #Minimum is 180
             
 
     print(minimum)
@@ -271,18 +273,21 @@ for epoch in range(1, n_iter+1):
         batch_size = 16
         (real_videos, labels) = next(data_iter) #random_choice()
 
+        print(type(real_videos.numpy()))
+
         for (key, val) in dictClassesIdx.items():
             if ( val == labels.item() ):
                 print(key)
 
         if cuda == True:
             real_videos = real_videos.cuda()
+
         real_videos = Variable(real_videos)
         real_img = real_videos[:, :, np.random.randint(0, T), :, :]
 
         ''' prepare fake images '''
         # note that n_frames is sampled from video length distribution
-        n_frames = np.random.randint(0, real_videos.size()[1] - 1) #video_lengths[np.random.randint(0, n_videos)]
+        n_frames = np.random.randint(0, real_videos.size()[2] - 1) #video_lengths[np.random.randint(0, n_videos)]
         Z = gen_z(n_frames, batch_size)  # Z.size() => (batch_size, n_frames, nz, 1, 1)
         # trim => (batch_size, T, nz, 1, 1)
         Z = trim_noise(Z)
