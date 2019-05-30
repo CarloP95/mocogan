@@ -349,6 +349,7 @@ for epoch in range(1, n_iter+1):
 
         '''Increment index for Batch'''
         data_i = data_i + 1
+        break
 
     if epoch % n_epochs_display == 0:
         print('[%d/%d] (%s) Loss_Di: %.4f Loss_Dv: %.4f Loss_Gi: %.4f Loss_Gv: %.4f Di_real_mean %.4f Di_fake_mean %.4f Dv_real_mean %.4f Dv_fake_mean %.4f'
