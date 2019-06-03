@@ -10,6 +10,7 @@ import glob
 current_path = os.path.dirname(__file__)
 resized_path = os.path.join(current_path, 'resized_data')
 resized_path_back = os.path.join(current_path, 'resized_data_back')
+
 dirs = glob.glob(os.path.join(current_path, 'raw_data/*/*'))
 files = [ glob.glob(dir+'/*') for dir in dirs ]
 files = sum(files, []) # flatten
@@ -26,7 +27,7 @@ files = sum(files, []) # flatten
 #    if not os.path.exists(saveDir):
 #        os.makedirs(saveDir)
     #### End of additions.
-    
+
 #    os.system("ffmpeg -i %s -pix_fmt yuv420p -vf crop=96:96:42:24 %s.mp4" %
 #             (file, os.path.join(saveDir, currentName)[:-4]))
 
