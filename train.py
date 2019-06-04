@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import DatasetFolder
 from torchvision.transforms import Lambda, Compose
 
-from models import Discriminator_I, Discriminator_V, Generator_I, GRU, UCF_101
+from models import Discriminator_I, Discriminator_V, Generator_I, GRU
 
 
 parser = argparse.ArgumentParser(description='Start trainning MoCoGAN.....')
@@ -35,9 +35,9 @@ EXPLORATORY_DATA_ANALYSIS = False
 
 parser.add_argument('--i_epochs_checkpoint', type=int, default=10,
                      help='set num of epochs between checkpoints, default: 10')
-parser.add_argument('--i_epochs_saveV', type=int, default=100,
+parser.add_argument('--i_epochs_saveV', type=int, default=10,
                      help='set num of epochs between save fake video, default: 10')
-parser.add_argument('--i_epochs_display', type=int, default=10,
+parser.add_argument('--i_epochs_display', type=int, default=1,
                      help='set num of epochs between print information, default: 1')
 #### End of additions for UCF-101
 
@@ -52,7 +52,7 @@ pre_train  = args.pre_train
 n_epochs_saveV      = args.i_epochs_saveV
 n_epochs_display    = args.i_epochs_display
 n_epochs_check      = args.i_epochs_checkpoint
-max_frame           = 30
+max_frame           = 25
 #### End of additions
 
 seed = 0
@@ -169,7 +169,7 @@ gru.initWeight()
 
 ''' prepare for train '''
 
-label = torch.FloatTensor()
+#label = torch.FloatTensor()
 
 def timeSince(since):
     now = time.time()
@@ -202,7 +202,7 @@ if cuda == True:
     gen_i.cuda()
     gru.cuda()
     criterion.cuda()
-    label = label.cuda()
+    #label = label.cuda()
 
 
 # setup optimizer
@@ -230,6 +230,7 @@ if pre_train == True:
 ''' calc grad of models '''
 
 def bp_i(inputs, y, retain=False):
+    label = (torch.FloatTensor()).cuda()
     label.resize_(inputs.size(0)).fill_(y)
     labelv = Variable(label)
     outputs = dis_i(inputs)
@@ -241,7 +242,15 @@ def bp_i(inputs, y, retain=False):
 def bp_v(inputs, y, retain=False):
     #print("----BackPropagate_V-----")
     #print(inputs.size())
-    label.resize_(inputs.size(0)).fill_(y)
+    label = (torch.FloatTensor()).cuda()
+    try:
+        label.resize_(inputs.size(0)).fill_(y)
+
+    except RuntimeError as _:
+        # Dimension of y does not allow to use fill_
+        assert(inputs.size(0) == y.size(0))
+        label = (torch.FloatTensor(y)).cuda()
+
     labelv = Variable(label)
     outputs = dis_v(inputs)
     err = criterion(outputs, labelv)
@@ -346,7 +355,8 @@ for epoch in range(1, n_iter+1):
             #print(f"Video Size:{real_videos.size()}")
             #print("-----END OF INFOS-----")
             croppedRealVideos = real_videos[:,:,randomStartFrameIdx: randomStartFrameIdx + T, :, :]
-            err_Dv_real, Dv_real_mean = bp_v(croppedRealVideos, 0.9)
+            #err_Dv_real, Dv_real_mean = bp_v(croppedRealVideos, 0.9)
+            err_Dv_real, Dv_real_mean = bp_v(croppedRealVideos, labels.type(torch.FloatTensor) / len(dictClassesIdx))
             err_Dv_fake, Dv_fake_mean = bp_v(fake_videos.detach(), 0)
             err_Dv = err_Dv_real + err_Dv_fake
             optim_Dv.step()
@@ -372,7 +382,7 @@ for epoch in range(1, n_iter+1):
             data_i = data_i + 1
         except StopIteration:
             break
-            ani
+
         except KeyboardInterrupt:
             save_video(fake_videos[0].data.cpu().numpy().transpose(1, 2, 3, 0), epoch)
             checkpoint(dis_i, optim_Di, epoch)
