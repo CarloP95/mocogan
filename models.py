@@ -2,7 +2,11 @@
 
 ## Additions for integration with UCF-101
 import os
+import math
+import imageio
 import skvideo.io
+from skvideo.io import FFmpegReader
+import numpy as np
 from glob import glob
 from torch.utils.data import Dataset
 #### End of additions.
@@ -177,11 +181,81 @@ class Flatten(nn.Module):
         return input.view(input.size(0), -1)
 
 
+## Addition for loading target & videoPath from UCF-101 class.
+
+def readVideoImageio(filename, n_channels= 3):
+    
+    reader = imageio.get_reader(filename,  'ffmpeg')
+    
+    nframes = math.ceil(reader.get_meta_data()['fps'] * reader.get_meta_data()['duration'])
+    shape = reader.get_meta_data()['size']
+    
+    videodata = np.empty((nframes, shape[0], shape[1], n_channels))
+    
+    for idx, img in enumerate(reader):
+         videodata[idx, :, :, :] = img
+            
+    return videodata
+
+def has_file_allowed_extension(filename, extensions):
+    """Checks if a file is an allowed extension.
+
+    Args:
+        filename (string): path to a file
+        extensions (tuple of strings): extensions to consider (lowercase)
+
+    Returns:
+        bool: True if the filename ends with one of given extensions
+    """
+    extensions = list(extensions)
+    
+    returnValue = False
+    for extension in extensions:
+        returnValue = returnValue or filename.lower().endswith(extension)
+    
+    return returnValue
+
+
+def make_dataset(dir, class_to_idx, extensions=None):
+    videos = []
+    dir = os.path.expanduser(dir)
+    
+    if extensions is not None:
+        def is_valid_file(x):
+            return has_file_allowed_extension(x, extensions)
+        
+    for target in sorted(class_to_idx.keys()):
+        d = os.path.join(dir, target)
+        if not os.path.isdir(d):
+            continue
+        for root, _, fnames in sorted(os.walk(d)):
+            for fname in sorted(fnames):
+                path = os.path.join(root, fname)
+                if is_valid_file(path):
+                    item = (path, class_to_idx[target])
+                    videos.append(item)
+
+    return videos
+
+def loadDict(filepath):
+    dictClassesIdx = {}
+    
+    try:
+        with open(filepath) as file:
+            for line in file:
+                dictClassesIdx[ line.split() [1]] = int( line.split() [0] )
+            
+    except FileNotFoundError as error:
+        print(error)
+        
+    return dictClassesIdx
+
 ## Addition for loading videos avoiding to get Out Of Memory
 
 class UCF_101(Dataset):
     """
-        Summary:
+        Summary
+        ----------
             A class that extends the abstract Dataset class to load lazily videos from disk.
 
         Parameters
@@ -192,20 +266,67 @@ class UCF_101(Dataset):
 
         videoHandler: module
             Hook to add new module to handles video loading.
-    """
-
-    def __init__(self, rootDir, videoHandler = skvideo.io):
+            
+        supportedExtensions: List of Strings
+            A list of extensions to load. E.g. ["mp4", "avi"]
+            
+        transform: torchvision.transforms.Compose
+            Sequence of transformation to apply to the dataset while loading.
+            
+        Constructor:
+        ----------
+            It requires that the in the previous directory with respect to @Param rootDir it can find the directory ucfTrainTestList
+            where it can read the file named classInd.txt where the mapping "Target" "Index" can be loaded.
+    """    
+    
+    def __init__(self, rootDir, videoHandler = skvideo.io.vread, supportedExtensions= [], transform= None):
+        
+        ucfDictFilename = "classInd.txt"            #Used to load the file classes.
+        ucfTrainTestDirname = "ucfTrainTestlist" #Used to find the class file.
+        previousDir = [*(os.path.split(rootDir)[:-1])][0]
+        
+        self.dictPath = os.path.join(previousDir, ucfTrainTestDirname, ucfDictFilename)
         self.rootDir = os.path.join(os.path.dirname(__file__), rootDir)
-        self.videosPaths = glob(os.path.join(rootDir, "*", "*"))
         self.videoHandler = videoHandler
+        self.transform = transform
+        
+        self.class_to_idx = loadDict(self.dictPath)
+        
+        samples = make_dataset(self.rootDir, self.class_to_idx, supportedExtensions)
+        self.samples = samples
+        
 
 
     def __len__(self):
-        return len(self.videosPaths)
+        return len(self.samples)
 
 
     def __getitem__(self, index):
-        return self.videoHandler.vread(self.videosPaths[index])
+        
+        path, target = self.samples[index]
+        
+        #readVideo = self.videoHandler(path, verbosity= 1)
+        #readVideo = self.videoHandler(path, verbosity= 1)
+        
+        """
+        inputdict = {"-threads": "1", "-s": "96x96"}
+        
+        reader = FFmpegReader(path, inputdict= inputdict, verbosity= 1)
+        T, M, N, C = reader.getShape()
+
+        readVideo = np.empty((T, M, N, C), dtype=reader.dtype)
+        for idx, frame in enumerate(reader.nextFrame()):
+            readVideo[idx, :, :, :] = frame
+
+        reader.close()
+        """
+        
+        readVideo = readVideoImageio(path)
+        
+        if self.transform:
+            readVideo = self.transform(readVideo)
+        
+        return readVideo, target
 
 
 #### End of Addition.
