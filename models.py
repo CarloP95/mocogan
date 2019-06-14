@@ -182,12 +182,22 @@ class Flatten(nn.Module):
 
 
 ## Addition for loading target & videoPath from UCF-101 class.
+   
+
+def getNumFrames(filename= None, fps= None, duration= None):
+    
+    if filename:
+        reader = imageio.get_reader(filename,  'ffmpeg')
+        return getNumFrames(fps= reader.get_meta_data()['fps'], duration= reader.get_meta_data()['duration'])
+    
+    else:    
+        return math.ceil(fps * duration)
 
 def readVideoImageio(filename, n_channels= 3):
     
     reader = imageio.get_reader(filename,  'ffmpeg')
     
-    nframes = math.ceil(reader.get_meta_data()['fps'] * reader.get_meta_data()['duration'])
+    nframes = getNumFrames(reader.get_meta_data()['fps'], reader.get_meta_data()['duration'])
     shape = reader.get_meta_data()['size']
     
     videodata = np.empty((nframes, shape[0], shape[1], n_channels))
@@ -234,7 +244,7 @@ def make_dataset(dir, class_to_idx, extensions=None):
                 if is_valid_file(path):
                     item = (path, class_to_idx[target])
                     videos.append(item)
-
+                    
     return videos
 
 def loadDict(filepath):
@@ -277,22 +287,30 @@ class UCF_101(Dataset):
         ----------
             It requires that the in the previous directory with respect to @Param rootDir it can find the directory ucfTrainTestList
             where it can read the file named classInd.txt where the mapping "Target" "Index" can be loaded.
+            
+        Attributes:
+        ----------
+            videoLengths: 
+                A dictionary that contains as key the filepath and as value the nframes of the video.
+                This is populated in a lazy way, every time that a video is loaded for the first time into memory.
+        
     """    
     
-    def __init__(self, rootDir, videoHandler = skvideo.io.vread, supportedExtensions= [], transform= None):
+    def __init__(self, rootDir, videoHandler = readVideoImageio, supportedExtensions= [], transform= None):
         
-        ucfDictFilename = "classInd.txt"            #Used to load the file classes.
-        ucfTrainTestDirname = "ucfTrainTestlist" #Used to find the class file.
+        ucfDictFilename = "classInd.txt"                    #Used to load the file classes.
+        ucfTrainTestDirname = "ucfTrainTestlist"            #Used to find the class file.
         previousDir = [*(os.path.split(rootDir)[:-1])][0]
         
         self.dictPath = os.path.join(previousDir, ucfTrainTestDirname, ucfDictFilename)
         self.rootDir = os.path.join(os.path.dirname(__file__), rootDir)
         self.videoHandler = videoHandler
         self.transform = transform
+        self.videoLengths = {}
         
         self.class_to_idx = loadDict(self.dictPath)
         
-        samples = make_dataset(self.rootDir, self.class_to_idx, supportedExtensions)
+        samples= make_dataset(self.rootDir, self.class_to_idx, supportedExtensions)
         self.samples = samples
         
 
@@ -321,7 +339,8 @@ class UCF_101(Dataset):
         reader.close()
         """
         
-        readVideo = readVideoImageio(path)
+        readVideo = self.videoHandler(path)
+        self.videoLengths[path] = getNumFrames(path)
         
         if self.transform:
             readVideo = self.transform(readVideo)
