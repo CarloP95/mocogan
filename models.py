@@ -133,22 +133,19 @@ class Generator_I(nn.Module):
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
             # Addition to prepare labels to be concatenated with input.
             label = nn.parallel.data_parallel(self.label_sequence, label, range(self.ngpu))
-            label = label.unsqueeze(0)
+            label = label.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            label = label.transpose(1,3)
             input[-1] = label
-            input = input.unsqueeze(0).unsqueeze(0)
-            #input = torch.cat( (input.squeeze(), label), 0 ).unsqueeze(0).unsqueeze(0)
-            input = input.transpose(0,2).transpose(1,3)
-            #input = nn.parallel.data_parallel(self.combine_sequence, torch.cat((input, label), 1), range(self.ngpu))
             
             output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
             
         else:
             label = self.label_sequence(label)
-            label = label.unsqueeze(0)
-            input = torch.cat( (input.squeeze(), label), 0).unsqueeze(0).unsqueeze(0)
-            input = input.transpose(0,2).transpose(1,3)
+            label = label.unsqueeze(0).unsqueeze(0).unsqueeze(0)
+            label = label.transpose(1,3)
+            input[-1] = label
+            #input = torch.cat( (input.squeeze(), label), 0)
             #input = self.combine_sequence(torch.cat((input, label), 1))
-            
             output = self.main(input)
             
         return output
