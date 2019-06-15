@@ -9,7 +9,6 @@ import glob
 
 current_path = os.path.dirname(__file__)
 resized_path = os.path.join(current_path, 'resized_data')
-resized_path_back = os.path.join(current_path, 'resized_data_back')
 
 dirs = glob.glob(os.path.join(current_path, 'raw_data/*/*'))
 files = [ glob.glob(dir+'/*') for dir in dirs ]
@@ -40,7 +39,7 @@ for file in files:
     dir = file.split(os.sep)
     currentAction = dir[2]
     currentName = dir[3]
-    saveDir = os.path.join(resized_path_back, currentAction)
+    saveDir = os.path.join(resized_path, currentAction)
 
     if not os.path.exists(saveDir):
         os.makedirs(saveDir)

@@ -5,7 +5,6 @@ import os
 import math
 import imageio
 import skvideo.io
-from skvideo.io import FFmpegReader
 import numpy as np
 from glob import glob
 from torch.utils.data import Dataset
@@ -233,20 +232,20 @@ class Flatten(nn.Module):
 ## Addition for loading target & videoPath from UCF-101 class.
    
 
-def getNumFrames(filename= None, fps= None, duration= None):
+def getNumFrames(reader):
     
-    if filename:
-        reader = imageio.get_reader(filename,  'ffmpeg')
-        return getNumFrames(fps= reader.get_meta_data()['fps'], duration= reader.get_meta_data()['duration'])
+    try:
+        return math.ceil(reader.get_meta_data()['fps'] * reader.get_meta_data()['duration'])
     
-    else:    
-        return math.ceil(fps * duration)
+    except AttributeError as _:
+        filename = reader
+        return getNumFrames(imageio.get_reader(filename,  'ffmpeg'))
 
 def readVideoImageio(filename, n_channels= 3):
     
     reader = imageio.get_reader(filename,  'ffmpeg')
     
-    nframes = getNumFrames(reader.get_meta_data()['fps'], reader.get_meta_data()['duration'])
+    nframes = getNumFrames(reader)
     shape = reader.get_meta_data()['size']
     
     videodata = np.empty((nframes, shape[0], shape[1], n_channels))
@@ -359,8 +358,7 @@ class UCF_101(Dataset):
         
         self.class_to_idx = loadDict(self.dictPath)
         
-        samples= make_dataset(self.rootDir, self.class_to_idx, supportedExtensions)
-        self.samples = samples
+        self.samples= make_dataset(self.rootDir, self.class_to_idx, supportedExtensions)
         
 
 
