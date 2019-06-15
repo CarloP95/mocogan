@@ -54,9 +54,16 @@ class Discriminator_I(nn.Module):
 
 
 class Discriminator_V(nn.Module):
-    def __init__(self, nc=3, ndf=64, T=16, ngpu=1):
+    def __init__(self, nc=3, ndf=64, T=16, ngpu=1, nClasses= 102):
         super(Discriminator_V, self).__init__()
         self.ngpu = ngpu
+        
+        self.label_sequence = nn.Sequential(
+            nn.Embedding( nClasses, nClasses // T ),
+            nn.Linear( nClasses // T, int((ndf*8)*(T/16)*6*6) ),
+            nn.LeakyReLU( 0.2, inplace= True )
+        )
+        
         self.main = nn.Sequential(
             # input is (nc) x T x 96 x 96
             nn.Conv3d(nc, ndf, 4, 2, 1, bias=False),
@@ -75,22 +82,36 @@ class Discriminator_V(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x T/16  x 6 x 6
             Flatten(),
-            nn.Linear(int((ndf*8)*(T/16)*6*6), 1),
+            #nn.Linear(int((ndf*8)*(T/16)*6*6), 1),
+            #nn.Sigmoid()
+        )
+        
+        self.final_sequence = nn.Sequential(
+            nn.Linear(int((ndf*8)*(T/16)*6*6) * 2, 1),
             nn.Sigmoid()
         )
 
-    def forward(self, input):
+    def forward(self, input, labels):
+    
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
-            output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
+            labels = nn.parallel.data_parallel(self.label_sequence, labels, range(self.ngpu))
+            intermediate_output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
+            output = nn.parallel.data_parallel(self.final_sequence, torch.cat((intermediate_output, labels), 1), range(self.ngpu))
+            
         else:
-            output = self.main(input)
-
+            # labels => 16 x 18432 || 1 x 18432
+            labels = self.label_sequence(labels)
+            # intermediate_output => 16 x 18432
+            intermediate_output = self.main(input)
+            # cat to be => 16 x 18432*2
+            output = self.final_sequence(torch.cat((intermediate_output, labels), 1))
+        
         return output.view(-1, 1).squeeze(1)
 
 
 # see: _netG in https://github.com/pytorch/examples/blob/master/dcgan/main.py
 class Generator_I(nn.Module):
-    def __init__(self, nc=3, ngf=64, nz=60, ngpu=1, nClasses= 102):
+    def __init__(self, nc=3, ngf=64, nz=60, ngpu=1, nClasses= 102, batch_size= 16):
         super(Generator_I, self).__init__()
         self.ngpu = ngpu
         # Addition for Conditioning the Model
@@ -102,9 +123,9 @@ class Generator_I(nn.Module):
             nn.ReLU(True)
         )
         
-        #self.combine_sequence = nn.Sequential(
-        #    nn.Linear(nz, nz)
-        #)
+        self.combine_sequence = nn.Sequential(
+            nn.Linear(ngf*4 + batch_size, ngf*4)
+        )
         
         self.main = nn.Sequential(
             # input is Z, going into a convolution
@@ -129,23 +150,24 @@ class Generator_I(nn.Module):
             # state size. (nc) x 96 x 96
         )
 
-    def forward(self, input, label):
+    def forward(self, input, labels):
         if isinstance(input.data, torch.cuda.FloatTensor) and self.ngpu > 1:
             # Addition to prepare labels to be concatenated with input.
-            label = nn.parallel.data_parallel(self.label_sequence, label, range(self.ngpu))
-            label = label.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-            label = label.transpose(1,3)
-            input[-1] = label
+            labels = nn.parallel.data_parallel(self.label_sequence, labels, range(self.ngpu))
+            labels = labels.unsqueeze(0).unsqueeze(0)
+            labels = labels.transpose(0,2).transpose(1,3)
+            input[-1] = labels
             
             output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
             
         else:
-            label = self.label_sequence(label)
-            label = label.unsqueeze(0).unsqueeze(0).unsqueeze(0)
-            label = label.transpose(1,3)
-            input[-1] = label
-            #input = torch.cat( (input.squeeze(), label), 0)
-            #input = self.combine_sequence(torch.cat((input, label), 1))
+            labels = self.label_sequence(labels)
+            labels = labels.unsqueeze(0).unsqueeze(0)
+            labels = labels.transpose(0,2).transpose(1,3)
+            combinedInput = torch.cat((input, labels), 0).transpose(0,3)
+            
+            input = self.combine_sequence(combinedInput).transpose(3,0)
+            
             output = self.main(input)
             
         return output
