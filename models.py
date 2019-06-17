@@ -243,19 +243,23 @@ def getNumFrames(reader):
 
 def readVideoImageio(filename, n_channels= 3):
     
+    frames = []
     with imageio.get_reader(filename,  'ffmpeg') as reader:
     
-        nframes = getNumFrames(reader)
         shape = reader.get_meta_data()['size']
         
-        videodata = np.empty((nframes, shape[0], shape[1], n_channels))
-        
-        for idx, img in enumerate(reader):
-            videodata[idx, :, :, :] = img
+        for img in reader:
+            try:
+                frames.append(img)
+                
+            except Error as err:
+                print(err)
          
     # Paranoid double check
     if not reader.closed:
         reader.close()
+        
+    videodata = np.array(frames, dtype= np.uint8)
             
     return videodata
 
