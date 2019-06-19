@@ -8,6 +8,7 @@ import skvideo.io
 import numpy as np
 from glob import glob
 from torch.utils.data import Dataset
+from skvideo.io import FFmpegReader
 #### End of additions.
 
 
@@ -110,6 +111,32 @@ class Discriminator_V(nn.Module):
 
 # see: _netG in https://github.com/pytorch/examples/blob/master/dcgan/main.py
 class Generator_I(nn.Module):
+    '''
+        Constructor
+        -----------
+        The constructor of Generator_I takes 6 arguments, all optional.
+        
+        nc:         integer, default= 3
+            Num channels of the image to produce.
+        
+        ngf:        integer, default= 64
+            Parameter of the ConvTranspose2d Layers.
+        
+        nz:         integer, default= 60
+            Number of samples for the noise.
+            
+        ngpu:       integer, default= 1
+            Number of GPU on which the model will run.
+            
+        nClasses:   integer, default= 102
+            Number of classes on which the Embedding module will work.
+            
+        batch_size: integer, default = 16
+            Batch size for each argument that will be passed to the model.
+            
+    
+    '''
+    
     def __init__(self, nc=3, ngf=64, nz=60, ngpu=1, nClasses= 102, batch_size= 16):
         super(Generator_I, self).__init__()
         self.ngpu = ngpu
@@ -155,7 +182,10 @@ class Generator_I(nn.Module):
             labels = nn.parallel.data_parallel(self.label_sequence, labels, range(self.ngpu))
             labels = labels.unsqueeze(0).unsqueeze(0)
             labels = labels.transpose(0,2).transpose(1,3)
-            input[-1] = labels
+            
+            combinedInput = torch.cat((input, labels), 0).transpose(0,3)
+            
+            input = nn.parallel.data_parallel(self.combine_sequence, combinedInput, range(self.ngpu)).transpose(3,0)
             
             output = nn.parallel.data_parallel(self.main, input, range(self.ngpu))
             
@@ -163,6 +193,7 @@ class Generator_I(nn.Module):
             labels = self.label_sequence(labels)
             labels = labels.unsqueeze(0).unsqueeze(0)
             labels = labels.transpose(0,2).transpose(1,3)
+            
             combinedInput = torch.cat((input, labels), 0).transpose(0,3)
             
             input = self.combine_sequence(combinedInput).transpose(3,0)
@@ -381,21 +412,23 @@ class UCF_101(Dataset):
         #readVideo = self.videoHandler(path, verbosity= 1)
         #readVideo = self.videoHandler(path, verbosity= 1)
         
-        """
-        inputdict = {"-threads": "1", "-s": "96x96"}
         
-        reader = FFmpegReader(path, inputdict= inputdict, verbosity= 1)
-        T, M, N, C = reader.getShape()
+        #inputdict = {"-threads": "4", "-s": "96x96", "-pix_fmt" : "yuv420p"}
+        
+        #with open(path, "r") as _:
+            #with FFmpegReader(path, inputdict= inputdict, verbosity= 0) as reader:
+                
+                #T, M, N, C = reader.getShape()
 
-        readVideo = np.empty((T, M, N, C), dtype=reader.dtype)
-        for idx, frame in enumerate(reader.nextFrame()):
-            readVideo[idx, :, :, :] = frame
-
-        reader.close()
-        """
+                #readVideo = np.empty((T, M, N, C), dtype=reader.dtype)
+                #for idx, frame in enumerate(reader.nextFrame()):
+                    #readVideo[idx, :, :, :] = frame
+        
         
         readVideo = self.videoHandler(path)
-        self.videoLengths[path] = getNumFrames(path)
+        
+        
+        self.videoLengths[path] = readVideo.shape[0] #getNumFrames(path)
         
         if self.transform:
             readVideo = self.transform(readVideo)
