@@ -33,10 +33,10 @@ parser.add_argument('--pre-train', type=int, default=-1,
 ## Additions for training on UCF-101
 EXPLORATORY_DATA_ANALYSIS = False
 
-parser.add_argument('--i_epochs_checkpoint', type=int, default=10,
-                     help='set num of epochs between checkpoints, default: 10')
-parser.add_argument('--i_epochs_saveV', type=int, default=10,
-                     help='set num of epochs between save fake video, default: 10')
+parser.add_argument('--i_epochs_checkpoint', type=int, default=1,
+                     help='set num of epochs between checkpoints, default: 1')
+parser.add_argument('--i_epochs_saveV', type=int, default=1,
+                     help='set num of epochs between save fake video, default: 1')
 parser.add_argument('--i_epochs_display', type=int, default=1,
                      help='set num of epochs between print information, default: 1')
 #### End of additions for UCF-101
@@ -85,7 +85,7 @@ dataset = DatasetFolder(resized_path, skvideo.io.vread, ["mp4"], transform= tran
 dataset.class_to_idx = dictClassesIdx
 
 
-dataloader = DataLoader(dataset, batch_size= batch_size, shuffle= True, num_workers= 4, pin_memory= True, drop_last= True)
+dataloader = DataLoader(dataset, batch_size= batch_size, shuffle= True, num_workers= 0, pin_memory= True, drop_last= True)
 
 
 if (EXPLORATORY_DATA_ANALYSIS):

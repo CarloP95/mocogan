@@ -322,6 +322,7 @@ def make_dataset(dir, class_to_idx, extensions=None):
             return has_file_allowed_extension(x, extensions)
         
     for target in sorted(class_to_idx.keys()):
+        
         d = os.path.join(dir, target)
         if not os.path.isdir(d):
             continue
@@ -383,13 +384,19 @@ class UCF_101(Dataset):
         
     """    
     
-    def __init__(self, rootDir, videoHandler = readVideoImageio, supportedExtensions= [], transform= None):
+    def __init__(self, rootDir, dictClassDir = '', videoHandler = readVideoImageio, supportedExtensions= [], transform= None):
         
         ucfDictFilename = "classInd.txt"                    #Used to load the file classes.
         ucfTrainTestDirname = "ucfTrainTestlist"            #Used to find the class file.
-        previousDir = [*(os.path.split(rootDir)[:-1])][0]
         
-        self.dictPath = os.path.join(previousDir, ucfTrainTestDirname, ucfDictFilename)
+        if dictClassDir == '':
+            previousDir = [*(os.path.split(rootDir)[:-1])][0]
+            self.dictPath = os.path.join(previousDir, ucfTrainTestDirname, ucfDictFilename)
+        
+        else:
+            self.dictPath = dictClassDir
+            
+        
         self.rootDir = os.path.join(os.path.dirname(__file__), rootDir)
         self.videoHandler = videoHandler
         self.transform = transform
