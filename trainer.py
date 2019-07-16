@@ -24,6 +24,7 @@ class Trainer(nn.Module):
         self.n_epochs           = parameters['n_iter']
         self.interval_log_stat  = parameters['i_log_stat']
         self.interval_save      = parameters['i_save_weights']
+        self.start_epoch        = parameters['pre_train_epoch']
         self.interval_train_g_d = parameters['i_alternate_train']
         self.image_batch_size   = self.video_batch_size = self.batch_size = parameters['batch_size']
 
@@ -61,6 +62,23 @@ class Trainer(nn.Module):
             self.optim_generator        = optimizer if key == "gen_i" else self.optim_generator
 
             index += 1
+        
+        self.loadState(self.start_epoch)
+
+
+    def loadState(self, epoch):
+        
+        if epoch != 0:
+
+            loadEpoch = epoch
+            addString = f"_epoch-{loadEpoch}" if loadEpoch is not None else ""
+            
+            self.discriminator_i.load_state_dict(torch.load(self.trained_path + f'/Discriminator_I{addString}.model'))
+            self.discriminator_v.load_state_dict(torch.load(self.trained_path + f'/Discriminator_V{addString}.model'))
+            self.generator.load_state_dict(torch.load(self.trained_path + f'/Generator_I{addString}.model'))
+            self.optim_discriminator_i.load_state_dict(torch.load(self.trained_path + f'/Discriminator_I{addString}.state'))
+            self.optim_discriminator_v.load_state_dict(torch.load(self.trained_path + f'/Discriminator_V{addString}.state'))
+            self.optim_generator.load_state_dict(torch.load(self.trained_path + f'/Generator_I{addString}.state'))
         
 
     def train_discriminator(self, discriminator, sample_true, sample_fake, opt, batch_size, use_categories):
@@ -181,6 +199,8 @@ class Trainer(nn.Module):
     def train(self):
 
         start_time = time()
+
+        l_gen_history = np.zeros(len(self.dataloader)); l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
         
         optimizers = [self.optim_discriminator_i, self.optim_discriminator_v, self.optim_generator]
 
@@ -226,7 +246,8 @@ class Trainer(nn.Module):
                                                     sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator)
 
                     print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Loss_Gen: {l_gen:.4f}', end='')
-
+                    
+                    l_gen_history[batch_idx] = l_gen;    l_dis_i_history[batch_idx] = l_image_dis;   l_dis_v_history[batch_idx] = l_video_dis
                     sleep(self.wait_between_batches)
 
             except StopIteration as _:
@@ -235,7 +256,7 @@ class Trainer(nn.Module):
             sleep(self.wait_between_epochs)
 
             if current_epoch % self.interval_log_stat == 0:
-                print(f'\n[{current_epoch}/{self.n_epochs}] ({self.timeSince(start_time)}) Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Loss_Generator: {l_gen:.4f}')
+                print(f'\n[{current_epoch}/{self.n_epochs}] ({self.timeSince(start_time)}) Loss_Di: {l_dis_i_history.mean():.4f} Loss_Dv: {l_dis_v_history.mean():.4f} Loss_Generator: {l_gen_history.mean():.4f}')
             
             if current_epoch % self.interval_train_g_d == 0:
                 self.generator.eval()

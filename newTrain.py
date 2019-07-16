@@ -25,7 +25,6 @@ def setCLArguments(parser):
     parser.add_argument('--pre_train', type= int, default= 0,
                         help= 'Set epoch from which load model weights.')
 
-
     # Get Interval to Save Models.
     parser.add_argument('--i_save_weights', type= int, default= 1,
                         help= 'Set interval between checkpoint for models.')
