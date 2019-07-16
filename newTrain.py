@@ -41,6 +41,17 @@ def setCLArguments(parser):
     parser.add_argument('--i_alternate_train', type= int, default= 2,
                         help= 'Set k epochs in which Generator will not be trained.')
 
+    # Enable Soft Labels
+    parser.add_argument('--soft_labels', action= 'store_true', default= False,
+                        help= 'Set to use Soft Labels {0.1 : False, 0.9: True}')
+
+    # Enable Soft Random Labels
+    parser.add_argument('--random_labels', action= 'store_true', default= False,
+                        help= 'Set to use Random Soft Labels.')
+
+    # Enable Shuffle Labels
+    parser.add_argument('--shuffle_labels', action= 'store_true', default= False,
+                        help= 'Set to shuffle 5/100 labels in first 10 epochs of training.')
 
 def getCLArguments(parser):
 
@@ -48,22 +59,28 @@ def getCLArguments(parser):
 
     cuda                = True if args.cuda and torch.cuda.is_available() else False
     batch_size          = args.batch_size
+    soft_labels         = args.soft_labels
     n_iter              = args.n_iter
     i_log_stat          = args.i_log_stat
     pre_train_epoch     = args.pre_train
     i_save_weights      = args.i_save_weights
     i_alternate_train   = args.i_alternate_train
     preprocessing       = args.preprocessing == 1
+    random_labels       = args.random_labels
+    shuffle_labels      = args.shuffle_labels
     
     return {
         "cuda"              : cuda,
         "batch_size"        : batch_size,
+        "soft_labels"       : soft_labels,
         "n_iter"            : n_iter, 
         "i_log_stat"        : i_log_stat,
         "pre_train_epoch"   : pre_train_epoch,
         "i_save_weights"    : i_save_weights,
         "i_alternate_train" : i_alternate_train,
-        "preprocessed"      : preprocessing
+        "preprocessed"      : preprocessing,
+        "random_labels"     : random_labels,
+        "shuffle_labels"    : shuffle_labels
     }
 
 

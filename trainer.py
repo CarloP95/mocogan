@@ -23,6 +23,9 @@ class Trainer(nn.Module):
         self.cuda               = parameters['cuda']
         self.n_epochs           = parameters['n_iter']
         self.interval_log_stat  = parameters['i_log_stat']
+        self.soft_labels        = parameters['soft_labels']
+        self.random_labels      = parameters['random_labels']
+        self.shuffle_labels     = parameters['shuffle_labels']
         self.interval_save      = parameters['i_save_weights']
         self.start_epoch        = parameters['pre_train_epoch']
         self.interval_train_g_d = parameters['i_alternate_train']
@@ -41,7 +44,6 @@ class Trainer(nn.Module):
         self.generated_path     = os.path.join(self.current_path, 'generated_videos')
 
         self.dataloader    = dataloader
-        
 
         self.wait_between_batches   = 1
         self.wait_between_epochs    = 10
@@ -64,6 +66,8 @@ class Trainer(nn.Module):
             index += 1
         
         self.loadState(self.start_epoch)
+        self.trueLabel  = 1 if not self.soft_labels else 0.9
+        self.falseLabel = 0 if not self.soft_labels else 0.1
 
 
     def loadState(self, epoch):
@@ -81,7 +85,7 @@ class Trainer(nn.Module):
             self.optim_generator.load_state_dict(torch.load(self.trained_path + f'/Generator_I{addString}.state'))
         
 
-    def train_discriminator(self, discriminator, sample_true, sample_fake, opt, batch_size, use_categories):
+    def train_discriminator(self, discriminator, sample_true, sample_fake, opt, batch_size, use_categories, shuffle = False):
 
         opt.zero_grad()
 
@@ -93,8 +97,8 @@ class Trainer(nn.Module):
         real_labels, real_categorical = discriminator(batch)
         fake_labels, fake_categorical = discriminator(fake_batch.detach())
 
-        ones = self.ones_like(real_labels); ones = ones.cuda() if self.cuda else ones
-        zeros = self.zeros_like(fake_labels); zeros = zeros.cuda() if self.cuda else zeros
+        ones = self.ones_like(real_labels, shuffle)
+        zeros = self.zeros_like(fake_labels, shuffle)
 
         l_discriminator = self.gan_criterion(real_labels, ones) + \
                           self.gan_criterion(fake_labels    , zeros)
@@ -113,7 +117,7 @@ class Trainer(nn.Module):
     def train_generator(self,
                         image_discriminator, video_discriminator,
                         sample_fake_images, sample_fake_videos,
-                        opt):
+                        opt, shuffle = False):
 
         opt.zero_grad()
         image_discriminator.eval()
@@ -123,7 +127,7 @@ class Trainer(nn.Module):
 
         fake_batch, generated_categories = sample_fake_images(self.image_batch_size)
         fake_labels, fake_categorical = image_discriminator(fake_batch)
-        all_ones = self.ones_like(fake_labels); all_ones = all_ones.cuda() if self.cuda else all_ones
+        all_ones = self.ones_like(fake_labels, shuffle)
 
         l_generator = self.gan_criterion(fake_labels, all_ones)
 
@@ -131,7 +135,7 @@ class Trainer(nn.Module):
 
         fake_batch, generated_categories = sample_fake_videos(self.video_batch_size)
         fake_labels, fake_categorical = video_discriminator(fake_batch)
-        all_ones = self.ones_like(fake_labels); all_ones = all_ones.cuda() if self.cuda else all_ones
+        all_ones = self.ones_like(fake_labels, shuffle)
 
         l_generator += self.gan_criterion(fake_labels, all_ones)
         
@@ -156,14 +160,40 @@ class Trainer(nn.Module):
         return toReturn, None
 
 
-    @staticmethod
-    def ones_like(tensor, val=1.):
-        return torch.FloatTensor(tensor.size()).fill_(val)
+    def ones_like(self, tensor, shuffle = False):
+        val = self.trueLabel
+        toReturnTensor = torch.FloatTensor(tensor.size()).fill_(val) if not self.cuda else torch.cuda.FloatTensor(tensor.size()).fill_(val)
+
+        if self.random_labels:
+            toAddNoise = torch.FloatTensor(np.random.uniform(-0.05, 0.05, size = toReturnTensor.size()))
+            toAddNoise = toAddNoise.cuda() if self.cuda else toAddNoise
+            toReturnTensor += toAddNoise
+
+        if shuffle:
+            probs = np.random.uniform(size = toReturnTensor.size(0))
+            
+            for idx, prob in enumerate(probs):
+                toReturnTensor[idx] = self.falseLabel if prob <= 0.05 else toReturnTensor[idx]
+
+        return toReturnTensor
 
 
-    @staticmethod
-    def zeros_like(tensor, val=0.):
-        return torch.FloatTensor(tensor.size()).fill_(val)
+    def zeros_like(self, tensor, shuffle = False):
+        val = self.falseLabel
+        toReturnTensor = torch.FloatTensor(tensor.size()).fill_(val) if not self.cuda else torch.cuda.FloatTensor(tensor.size()).fill_(val)
+
+        if self.random_labels:
+            toAddNoise = torch.FloatTensor( np.random.uniform(-0.05, 0.05, size = toReturnTensor.size()) )
+            toAddNoise = toAddNoise.cuda() if self.cuda else toAddNoise
+            toReturnTensor += toAddNoise
+
+        if shuffle:
+            probs = np.random.uniform(size = toReturnTensor.size(0))
+            
+            for idx, prob in enumerate(probs):
+                toReturnTensor[idx] = self.trueLabel if prob <= 0.05 else toReturnTensor[idx]
+
+        return toReturnTensor
 
 
     @staticmethod
@@ -215,6 +245,7 @@ class Trainer(nn.Module):
             for optimizer in optimizers:
                 optimizer.zero_grad()
 
+            shuffleLabels = self.shuffle_labels and current_epoch <= 8
             total_batch = len(self.dataloader)
 
             try:
@@ -231,19 +262,19 @@ class Trainer(nn.Module):
                     ### Train image discriminator
                     l_image_dis = self.train_discriminator(self.discriminator_i, self.sample_images(real_videos),
                                                         sample_fake_image_batch, self.optim_discriminator_i,
-                                                        self.image_batch_size, use_categories=False)
+                                                        self.image_batch_size, use_categories=False, shuffle = shuffleLabels)
 
                     ### Train video discriminator
                     l_video_dis = self.train_discriminator(self.discriminator_v, (real_videos, targets),
                                                         sample_fake_video_batch, self.optim_discriminator_v,
-                                                        self.video_batch_size, use_categories= True)
+                                                        self.video_batch_size, use_categories= True, shuffle = shuffleLabels)
 
                     l_gen = 0.0
                     if current_epoch % self.interval_train_g_d == 0:
 
                         # Train generator
                         l_gen = self.train_generator(self.discriminator_i, self.discriminator_v,
-                                                    sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator)
+                                                    sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator, shuffle = shuffleLabels)
 
                     print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Loss_Gen: {l_gen:.4f}', end='')
                     
