@@ -66,7 +66,7 @@ class Discriminator_I(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x 6 x 6
             nn.Conv2d(ndf * 8, 1, 6, 1, 0, bias=False),
-            nn.Sigmoid()
+            # Do not use it, since using BCEWithLogitsLoss nn.Sigmoid()
         )
 
     def forward(self, input):
@@ -344,6 +344,22 @@ class VideoGenerator(nn.Module):
             nn.ConvTranspose2d(ngf, self.n_channels, 4, 2, 1, bias=False),
             nn.Tanh()
         )
+
+    def init_weigths(self, init_forget_bias=1):
+        for name, params in self.recurrent.named_parameters():
+            if 'weight' in name:
+                init.xavier_uniform_(params)
+
+            # initialize forget gate bias
+            elif 'gru.bias_ih_l' in name:
+                b_ir, b_iz, b_in = params.chunk(3, 0)
+                init.constant_(b_iz, init_forget_bias)
+            elif 'gru.bias_hh_l' in name:
+                b_hr, b_hz, b_hn = params.chunk(3, 0)
+                init.constant_(b_hz, init_forget_bias)
+            else:
+                init.constant_(params, 0)
+
 
     def sample_z_m(self, num_samples, video_len=None):
         video_len = video_len if video_len is not None else self.video_length

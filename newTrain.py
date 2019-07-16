@@ -118,6 +118,8 @@ if __name__ == '__main__':
 
     dis_i, dis_v, gen= createModels(clArguments)
 
+    gen.init_weigths()
+
     dataloader, transformator = getDataloader(clArguments['batch_size'], clArguments['preprocessed'])
 
     # Prepare Trainer
