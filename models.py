@@ -150,7 +150,7 @@ class VideoDiscriminator(nn.Module):
             nn.Conv3d(ndf * 4, ndf * 8, 4, stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
             nn.BatchNorm3d(ndf * 8),
             nn.LeakyReLU(0.2, inplace=True),
-
+            
             nn.Conv3d(ndf * 8, self.n_output_neurons, 4, 3, 0, bias=False),
         )
     

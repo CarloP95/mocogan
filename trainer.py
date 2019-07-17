@@ -66,8 +66,10 @@ class Trainer(nn.Module):
             index += 1
         
         self.loadState(self.start_epoch)
+        # Improved Techniques for Training GANs ## Link: https://arxiv.org/pdf/1606.03498.pdf
         self.trueLabel  = 1 if not self.soft_labels else 0.9
-        self.falseLabel = 0 if not self.soft_labels else 0.1
+        self.trueLabel  = self.trueLabel + 0.05 if self.random_labels and self.soft_labels else self.trueLabel
+        self.falseLabel = 0
 
 
     def loadState(self, epoch):
@@ -78,11 +80,11 @@ class Trainer(nn.Module):
             addString = f"_epoch-{loadEpoch}" if loadEpoch is not None else ""
             
             self.discriminator_i.load_state_dict(torch.load(self.trained_path + f'/Discriminator_I{addString}.model'))
-            self.discriminator_v.load_state_dict(torch.load(self.trained_path + f'/Discriminator_V{addString}.model'))
-            self.generator.load_state_dict(torch.load(self.trained_path + f'/Generator_I{addString}.model'))
+            self.discriminator_v.load_state_dict(torch.load(self.trained_path + f'/VideoDiscriminator{addString}.model'))
+            self.generator.load_state_dict(torch.load(self.trained_path + f'/VideoGenerator{addString}.model'))
             self.optim_discriminator_i.load_state_dict(torch.load(self.trained_path + f'/Discriminator_I{addString}.state'))
-            self.optim_discriminator_v.load_state_dict(torch.load(self.trained_path + f'/Discriminator_V{addString}.state'))
-            self.optim_generator.load_state_dict(torch.load(self.trained_path + f'/Generator_I{addString}.state'))
+            self.optim_discriminator_v.load_state_dict(torch.load(self.trained_path + f'/VideoDiscriminator{addString}.state'))
+            self.optim_generator.load_state_dict(torch.load(self.trained_path + f'/VideoGenerator{addString}.state'))
         
 
     def train_discriminator(self, discriminator, sample_true, sample_fake, opt, batch_size, use_categories, shuffle = False):
@@ -97,7 +99,7 @@ class Trainer(nn.Module):
         real_labels, real_categorical = discriminator(batch)
         fake_labels, fake_categorical = discriminator(fake_batch.detach())
 
-        ones = self.ones_like(real_labels, shuffle)
+        ones  = self.ones_like(real_labels, shuffle)
         zeros = self.zeros_like(fake_labels, shuffle)
 
         l_discriminator = self.gan_criterion(real_labels, ones) + \
@@ -180,20 +182,8 @@ class Trainer(nn.Module):
 
     def zeros_like(self, tensor, shuffle = False):
         val = self.falseLabel
-        toReturnTensor = torch.FloatTensor(tensor.size()).fill_(val) if not self.cuda else torch.cuda.FloatTensor(tensor.size()).fill_(val)
 
-        if self.random_labels:
-            toAddNoise = torch.FloatTensor( np.random.uniform(-0.05, 0.05, size = toReturnTensor.size()) )
-            toAddNoise = toAddNoise.cuda() if self.cuda else toAddNoise
-            toReturnTensor += toAddNoise
-
-        if shuffle:
-            probs = np.random.uniform(size = toReturnTensor.size(0))
-            
-            for idx, prob in enumerate(probs):
-                toReturnTensor[idx] = self.trueLabel if prob <= 0.05 else toReturnTensor[idx]
-
-        return toReturnTensor
+        return torch.FloatTensor(tensor.size()).fill_(val) if not self.cuda else torch.cuda.FloatTensor(tensor.size()).fill_(val)
 
 
     @staticmethod
