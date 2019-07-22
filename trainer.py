@@ -102,18 +102,22 @@ class Trainer(nn.Module):
         ones  = self.ones_like(real_labels, shuffle)
         zeros = self.zeros_like(fake_labels, shuffle)
 
-        l_discriminator = self.gan_criterion(real_labels, ones) + \
-                          self.gan_criterion(fake_labels    , zeros)
+        l_discriminator = self.gan_criterion(real_labels, ones ) + \
+                          self.gan_criterion(fake_labels, zeros)
 
+        accuracy = None
         if use_categories:
             # Ask the video discriminator to learn categories from training videos
-            categories_gt = torch.squeeze(real_batch[1].long())
-            l_discriminator += self.category_criterion(real_categorical.squeeze(), categories_gt)
+            categoriesTensor = real_batch[1].long()
+            l_discriminator += self.category_criterion(real_categorical, categoriesTensor)
+            values, predictedClasses = real_categorical.max(1)
+            correct = predictedClasses.eq(categoriesTensor).sum().item()
+            accuracy = correct/batch_size
 
         l_discriminator.backward()
         opt.step()
 
-        return l_discriminator
+        return l_discriminator, accuracy
 
 
     def train_generator(self,
@@ -142,7 +146,7 @@ class Trainer(nn.Module):
         l_generator += self.gan_criterion(fake_labels, all_ones)
         
         # Ask the generator to generate categories recognizable by the discriminator
-        l_generator += self.category_criterion(fake_categorical.squeeze(), generated_categories)
+        l_generator += self.category_criterion(fake_categorical, generated_categories)
 
         l_generator.backward()
         opt.step()
@@ -246,16 +250,16 @@ class Trainer(nn.Module):
                     
                     real_videos = real_videos.cuda() if self.cuda else real_videos
                     # Target range must be between [0, 100], not [1, 101]
-                    targets     = targets.cuda() if self.cuda else targets; targets -= 1
+                    targets                 = targets.cuda() if self.cuda else targets; targets -= 1
 
                     # Train the discriminators
                     ### Train image discriminator
-                    l_image_dis = self.train_discriminator(self.discriminator_i, self.sample_images(real_videos),
+                    l_image_dis, _          = self.train_discriminator(self.discriminator_i, self.sample_images(real_videos),
                                                         sample_fake_image_batch, self.optim_discriminator_i,
                                                         self.image_batch_size, use_categories=False, shuffle = shuffleLabels)
 
                     ### Train video discriminator
-                    l_video_dis = self.train_discriminator(self.discriminator_v, (real_videos, targets),
+                    l_video_dis, accuracy   = self.train_discriminator(self.discriminator_v, (real_videos, targets),
                                                         sample_fake_video_batch, self.optim_discriminator_v,
                                                         self.video_batch_size, use_categories= True, shuffle = shuffleLabels)
 
@@ -266,7 +270,7 @@ class Trainer(nn.Module):
                         l_gen = self.train_generator(self.discriminator_i, self.discriminator_v,
                                                     sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator, shuffle = shuffleLabels)
 
-                    print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Loss_Gen: {l_gen:.4f}', end='')
+                    print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Accuracy_Dv: {accuracy:.4f} Loss_Gen: {l_gen:.4f}', end='')
                     
                     l_gen_history[batch_idx] = l_gen;    l_dis_i_history[batch_idx] = l_image_dis;   l_dis_v_history[batch_idx] = l_video_dis
                     sleep(self.wait_between_batches)
@@ -282,7 +286,7 @@ class Trainer(nn.Module):
             if current_epoch % self.interval_train_g_d == 0:
                 self.generator.eval()
                 fake_video, generated_category = sample_fake_video_batch(1, np.random.randint(16, 25 * 3))
-                self.save_video(fake_video.squeeze().data.cpu().numpy().transpose(1, 2, 3, 0), generated_category,current_epoch)
+                self.save_video(fake_video.squeeze().data.cpu().numpy().transpose(1, 2, 3, 0), generated_category, current_epoch)
 
             if current_epoch % self.interval_save == 0:
                 self.checkpoint(current_epoch)

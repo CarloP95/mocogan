@@ -125,4 +125,8 @@ if __name__ == '__main__':
     # Prepare Trainer
     trainer = Trainer(clArguments, dis_i, dis_v, gen, dataloader, transformator)
 
-    trainer.train()
+    try:
+        trainer.train()
+
+    except KeyboardInterrupt as _:
+        pass
