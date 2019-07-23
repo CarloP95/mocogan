@@ -1,123 +1,93 @@
-# coding: utf-8
+##########################################################################################
+## MIT License                                                                          ##
+##                                                                                      ##
+## Copyright (c) [2019] [ CarloP95 carlop95@hotmail.it,                                 ##
+##                        vitomessi vitomessi93@gmail.com ]                             ##
+##                                                                                      ##
+##                                                                                      ##
+## Permission is hereby granted, free of charge, to any person obtaining a copy         ##
+## of this software and associated documentation files (the "Software"), to deal        ##
+## in the Software without restriction, including without limitation the rights         ##
+## to use, copy, modify, merge, publish, distribute, sublicense, and/or sell            ##
+## copies of the Software, and to permit persons to whom the Software is                ##
+## furnished to do so, subject to the following conditions:                             ##
+##                                                                                      ##
+## The above copyright notice and this permission notice shall be included in all       ##
+## copies or substantial portions of the Software.                                      ##
+##                                                                                      ##
+## THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR           ##
+## IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,             ##
+## FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE          ##
+## AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER               ##
+## LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,        ##
+## OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE        ##
+## SOFTWARE.                                                                            ##
+##########################################################################################
 
 #### Additions for integration with UCF-101
+
+from functools import reduce
+from operator import mul
+from tqdm import tqdm
 
 import numpy as np
 import torch
 
-class _MeanCalculator():
+
+class StatisticsCalculator:
+    def __init__(self, dataloader, calculate_std = True, mean = None):
+        self.calculate_std  = calculate_std
+        self.dataloader     = dataloader
+        self.medium         = mean
+
+        for element, _ in self.dataloader:
+            element = element[0]
+            self.numChannels = element.shape[-1]
+            self.dimensionToReduce = [*range(len(element.shape) - 1)]
+            break
+
     
-    def __init__(self):
-        
-        self.totalPixels    = 0
-        self.mean           = None
-        
-        
-    def executeMean(self, values, totalPixels = 0):
-        
-        if not isinstance(values, np.ndarray):
-            raise TypeError(f"Values must be of type {type(np.ndarray)}. Find {type(values)}")
-        
-        return values / totalPixels
-    
-    
-    def getToReduceDimensions(self, video, n_channels):
-        
-        videoSize = video.shape
-        
-        if n_channels in videoSize or 1 in videoSize:
-            
-            dimensionsToReduce = []
-            
-            for idx, dim in enumerate(videoSize):
+    def start(self):
+        # Using DoubleTensor to avoid precision errors.
+        accumulator     = torch.DoubleTensor(self.numChannels).fill_(0)
+        totalNumEls     = 0
+        medium          = torch.DoubleTensor(self.medium) if self.medium is not None else None
+        calculateNumEls = True if medium is not None else False
+        std             = None
+
+        if medium is None:
+
+            print(f'Starting routine for Mean values in dimension {self.dimensionToReduce} of each element.')
+            for element, _ in tqdm(self.dataloader):
                 
-                if dim == n_channels or dim == 1:
-                    continue
-                
-                dimensionsToReduce.append(idx)
+                # Reduce batch dimensions
+                element         = element[0]
+                accumulator     += element.sum(self.dimensionToReduce).double()
+                totalNumEls     += reduce(mul, [element.shape[dim] for dim in self.dimensionToReduce])
+
+            medium = (accumulator/totalNumEls)
+            print(f'Finded medium values: {medium.tolist()}')
+
+        if self.calculate_std:
+
+            accumulator = torch.DoubleTensor(self.numChannels).fill_(0)
+
+            print(f'\n\nStarting routine for Std deviation in dimension {self.dimensionToReduce} of each element.')
+            for element, _ in tqdm(self.dataloader):
             
-            return tuple(dimensionsToReduce)
-        
-        else:
-            raise TypeError(f"Can't get num_channels: must be 1 or 3, find shape {videoSize}")
+                # Reduce batch dimensions
+                element         = element[0].double()
+                accumulator     += ((element - medium)**2).sum(self.dimensionToReduce).double()
+                if calculateNumEls:
+                    totalNumEls     += reduce(mul, [element.shape[dim] for dim in self.dimensionToReduce])
+
+            toSqrt  = accumulator/totalNumEls
+            std     = toSqrt.sqrt().tolist()
 
 
-    def reduceChannels(self, video, n_channels = 3):
-        
-        if not isinstance(video, np.ndarray):
-            raise TypeError(f"reduceChannels method is implemented only for {type(np.ndarray)}, can't convert {type(video)}")
-        
-        videoSize = video.shape
-        reducedArray = None
-        
-        dimensionsToReduce = self.getToReduceDimensions(video, n_channels)
-        
-        # ### Increment self attribute to self calculate mean
-        self.totalPixels = self.totalPixels + ((videoSize[1] * videoSize[2]) * videoSize[0])
-        
-        return np.add.reduce(video, tuple(dimensionsToReduce))
+        return medium.tolist(), std
 
 
-class StatisticsCalculator():
-    
-    def __init__(self):
         
-        self.std        = None
-        self.mean       = _MeanCalculator()
-        self.meanValue  = 0
-       
-       
-    def reduceChannels(self, video, n_channels = 3):
-        
-        return self.mean.reduceChannels(video, n_channels)
-    
-    
-    def executeMean(self, values, totalPixels):
-        
-        return self.mean.executeMean(values, totalPixels)
-
-
-    def accumulateForStd(self, video, mean = 0):
-        
-        subtracted = video - mean
-        
-        dimensionsToReduce = self.mean.getToReduceDimensions(video, 3)
-        
-        return np.add.reduce(subtracted**2, dimensionsToReduce)
-        
-
-    def getStatistics(self, dataloader):
-        
-        reducedChannels = np.zeros((3))
-        
-        # ### Execute Mean
-        for object, _ in dataloader:
-            
-            if isinstance(object, torch.Tensor):
-                object = object.numpy()
-                
-            reducedChannels = reducedChannels + self.reduceChannels(object)
-        
-        self.meanValue = self.executeMean(reducedChannels, self.mean.totalPixels)
-        
-        print(f"Mean is: {self.meanValue}")
-        
-        # ### Execute Std deviation
-        
-        # ### ### Execute summation
-        summation = np.zeros((3))
-        
-        for object, _ in dataloader:
-            if isinstance(object, torch.Tensor):
-                object = object.numpy()
-                
-            summation = summation + self.accumulateForStd(object, self.meanValue)
-            
-        # ### ### Divide and take squared root
-        self.std = np.sqrt( summation / self.mean.totalPixels )
-        
-        print(f"Std is: {self.std}")
-        
-        return self.meanValue, self.std
 
 ####
