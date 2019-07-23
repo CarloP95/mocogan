@@ -51,7 +51,12 @@ def setCLArguments(parser):
 
     # Enable Shuffle Labels
     parser.add_argument('--shuffle_labels', action= 'store_true', default= False,
-                        help= 'Set to shuffle 5/100 labels in first 10 epochs of training.')
+                        help= 'Set to shuffle 5/100 labels in first 8 epochs of training.')
+
+    # Enable WGAN, this will disable alternate training.
+    parser.add_argument('--i_wasserstein', type= int, default= 0,
+                        help= 'Set this to a number different from 0 to turn into a WGAN. Read https://arxiv.org/pdf/1701.07875.pdf')
+
 
 def getCLArguments(parser):
 
@@ -68,6 +73,7 @@ def getCLArguments(parser):
     preprocessing       = args.preprocessing == 1
     random_labels       = args.random_labels
     shuffle_labels      = args.shuffle_labels
+    i_wasserstein       = args.i_wasserstein
     
     return {
         "cuda"              : cuda,
@@ -80,7 +86,8 @@ def getCLArguments(parser):
         "i_alternate_train" : i_alternate_train,
         "preprocessed"      : preprocessing,
         "random_labels"     : random_labels,
-        "shuffle_labels"    : shuffle_labels
+        "shuffle_labels"    : shuffle_labels,
+        "i_wasserstein"     : i_wasserstein
     }
 
 

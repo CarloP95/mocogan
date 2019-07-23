@@ -20,30 +20,32 @@ class Trainer(nn.Module):
                      
         super(Trainer, self).__init__()
 
-        self.cuda               = parameters['cuda']
-        self.n_epochs           = parameters['n_iter']
-        self.interval_log_stat  = parameters['i_log_stat']
-        self.soft_labels        = parameters['soft_labels']
-        self.random_labels      = parameters['random_labels']
-        self.shuffle_labels     = parameters['shuffle_labels']
-        self.interval_save      = parameters['i_save_weights']
-        self.start_epoch        = parameters['pre_train_epoch']
-        self.interval_train_g_d = parameters['i_alternate_train']
-        self.image_batch_size   = self.video_batch_size = self.batch_size = parameters['batch_size']
+        self.cuda                   = parameters['cuda']
+        self.n_epochs               = parameters['n_iter']
+        self.interval_log_stat      = parameters['i_log_stat']
+        self.soft_labels            = parameters['soft_labels']
+        self.random_labels          = parameters['random_labels']
+        self.shuffle_labels         = parameters['shuffle_labels']
+        self.interval_save          = parameters['i_save_weights']
+        self.start_epoch            = parameters['pre_train_epoch']
+        self.wasserstein_interval   = parameters['i_wasserstein']
+        self.interval_train_g_d     = parameters['i_alternate_train'] if self.wasserstein_interval == 0 else 1
+        
+        self.image_batch_size       = self.video_batch_size = self.batch_size = parameters['batch_size']
 
-        self.transformator      = transformator                     # Will be used to retrieve stdDev and Medium when saving the videos.
-        self.generator          = generator.cuda() if self.cuda else generator
-        self.discriminator_i    = discriminator_i.cuda() if self.cuda else discriminator_i
-        self.discriminator_v    = discriminator_v.cuda() if self.cuda else discriminator_v
+        self.transformator          = transformator                     # Will be used to retrieve stdDev and Medium when saving the videos.
+        self.generator              = generator.cuda() if self.cuda else generator
+        self.discriminator_i        = discriminator_i.cuda() if self.cuda else discriminator_i
+        self.discriminator_v        = discriminator_v.cuda() if self.cuda else discriminator_v
 
-        self.gan_criterion      = gan_criterion().cuda() if self.cuda else gan_criterion()
-        self.category_criterion = category_criterion().cuda() if self.cuda else category_criterion()
+        self.gan_criterion          = gan_criterion().cuda() if self.cuda else gan_criterion()
+        self.category_criterion     = category_criterion().cuda() if self.cuda else category_criterion()
 
-        self.current_path       = os.path.dirname(__file__)
-        self.trained_path       = os.path.join(self.current_path, 'trained_models')
-        self.generated_path     = os.path.join(self.current_path, 'generated_videos')
+        self.current_path           = os.path.dirname(__file__)
+        self.trained_path           = os.path.join(self.current_path, 'trained_models')
+        self.generated_path         = os.path.join(self.current_path, 'generated_videos')
 
-        self.dataloader    = dataloader
+        self.dataloader             = dataloader
 
         self.wait_between_batches   = 1
         self.wait_between_epochs    = 10
@@ -239,8 +241,9 @@ class Trainer(nn.Module):
             for optimizer in optimizers:
                 optimizer.zero_grad()
 
-            shuffleLabels = self.shuffle_labels and current_epoch <= 8
-            total_batch = len(self.dataloader)
+            shuffleLabels       = self.shuffle_labels and current_epoch <= 8
+            total_batch         = len(self.dataloader)
+            batch_idx_history   = 0
 
             try:
                 for batch_idx, (real_videos, targets) in enumerate(self.dataloader):
@@ -264,16 +267,22 @@ class Trainer(nn.Module):
                                                         self.video_batch_size, use_categories= True, shuffle = shuffleLabels)
 
                     l_gen = 0.0
+                    # self.interval_train_g_d will be 1 if self.wasserstein_interval is on.
                     if current_epoch % self.interval_train_g_d == 0:
 
                         # Train generator
-                        l_gen = self.train_generator(self.discriminator_i, self.discriminator_v,
-                                                    sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator, shuffle = shuffleLabels)
+                        ### If self.wasserstein_interval is on, only on some batches.
+                        if batch_idx_history % self.wasserstein_interval == 0:
+                            l_gen = self.train_generator(self.discriminator_i, self.discriminator_v,
+                                                        sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator, shuffle = shuffleLabels)
 
                     print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Accuracy_Dv: {accuracy:.4f} Loss_Gen: {l_gen:.4f}', end='')
                     
                     l_gen_history[batch_idx] = l_gen;    l_dis_i_history[batch_idx] = l_image_dis;   l_dis_v_history[batch_idx] = l_video_dis
+                    batch_idx_history       += 1
+                    
                     sleep(self.wait_between_batches)
+                    
 
             except StopIteration as _:
                 continue
