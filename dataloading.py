@@ -17,7 +17,8 @@ def getPaths(preprocessed = False):
     """
     current_path = os.path.dirname(__file__)
     return os.path.join(current_path, "raw_data") if not preprocessed else os.path.join(current_path, "Submit_to_model_videos.txt"), \
-                os.path.join(current_path, "ucfTrainTestlist", "classInd.txt")
+                os.path.join(current_path, "raw_data")
+                #os.path.join(current_path, "ucfTrainTestlist", "classInd.txt")
 
 
 class Transformator():
@@ -76,7 +77,7 @@ class Transformator():
                             Resize((self.img_size, self.img_size), interpolation = self.interpolation),
                             ColorJitter(brightness = self.brightness, contrast = self.contrast, saturation = self.saturation, hue = self.hue),
                             ClipToTensor(div_255 = True),
-                            Normalize( self.medium, self.stdDev)
+                            Normalize(self.medium, self.stdDev)
                         ])
 
 
@@ -101,7 +102,7 @@ class DataLoaderFactory():
         extensions, type = list, default = ['avi']
             Extensions supported to load videos. 
     """
-    def __init__(self, datasetModel, transformator, preprocessed, batch_size = 16, num_workers = 8, extensions = ["avi"]):
+    def __init__(self, datasetModel, transformator, preprocessed, batch_size = 16, num_workers = 8, extensions = ["avi"], classes = []):
         
         # TypeCheck for transformator parameter
         if not isinstance(transformator, Transformator) and not isinstance(transformator, Compose):
@@ -123,7 +124,7 @@ class DataLoaderFactory():
 
         #if datasetModel is UCF_101:
         raw_path, dict_path = getPaths(preprocessed) #Raw path is preprocessed file informations.
-        self.dataset = UCF_101(raw_path, dict_path, supportedExtensions= self.extensions, transform= self.transform)
+        self.dataset = UCF_101(raw_path, dict_path, supportedExtensions= self.extensions, transform= self.transform, classes= classes)
 
     """
     Main method to get the Dataloader and to use it in the main method of train.

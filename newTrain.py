@@ -57,6 +57,9 @@ def setCLArguments(parser):
     parser.add_argument('--i_wasserstein', type= int, default= 0,
                         help= 'Set this to a number different from 0 to turn into a WGAN. Read https://arxiv.org/pdf/1701.07875.pdf')
 
+    # Enable training for reduced number of classes, passed as argument.
+    parser.add_argument('--classes', nargs= '+', type= str, default= [],
+                        help= 'Set this to a list of the names of classes to take into account in training process.')
 
 def getCLArguments(parser):
 
@@ -66,6 +69,7 @@ def getCLArguments(parser):
     batch_size          = args.batch_size
     soft_labels         = args.soft_labels
     n_iter              = args.n_iter
+    classes             = args.classes
     i_log_stat          = args.i_log_stat
     pre_train_epoch     = args.pre_train
     i_save_weights      = args.i_save_weights
@@ -79,7 +83,8 @@ def getCLArguments(parser):
         "cuda"              : cuda,
         "batch_size"        : batch_size,
         "soft_labels"       : soft_labels,
-        "n_iter"            : n_iter, 
+        "n_iter"            : n_iter,
+        "classes"           : classes,
         "i_log_stat"        : i_log_stat,
         "pre_train_epoch"   : pre_train_epoch,
         "i_save_weights"    : i_save_weights,
@@ -93,25 +98,32 @@ def getCLArguments(parser):
 
 def createModels(parameters):
 
+    n_classes  = len(parameters['classes'])
+
     n_channels = 3
-    dim_z_content=50            #  dimensionality of the content input, ie hidden space [default: 50]
-    dim_z_motion=10             #  dimensionality of the motion input [default: 10]
-    dim_z_category=101          #  dimensionality of categorical input [default: 101]
-    video_lenght = 16           #  hyperparameter T of the mocogan [default: 16]
+    dim_z_content=50                                            #  dimensionality of the content input, ie hidden space [default: 50]
+    dim_z_motion=10                                             #  dimensionality of the motion input [default: 10]
+    dim_z_category= n_classes if n_classes > 0 else 101         #  dimensionality of categorical input [default: 101]
+    video_lenght = 16                                           #  hyperparameter T of the mocogan [default: 16]
     cuda = parameters['cuda']
 
     return Discriminator_I(), VideoDiscriminator(n_channels, dim_z_category, cuda = cuda), \
                  VideoGenerator(n_channels, dim_z_content, dim_z_category, dim_z_motion, video_lenght, cuda)
 
 
-def getDataloader(batch_size, preprocessed):
+def getDataloader(batch_size, preprocessed, classes):
 
     img_size    = 96
     max_frame   = 16            # This prevents cropping the clip into the training algorithm
 
-    t = Transformator(img_size, max_frame)
+    medium      = (100.99800554447337/255, 96.7195209000943/255, 89.63882431650443/255)
+    std         = (72.07041943699456/255, 70.41506399740703/255, 71.55581999303428/255)
+    #medium       = 0.5
+    #std          = 0.5
 
-    factory = DataLoaderFactory(UCF_101, t, preprocessed, batch_size)
+    t = Transformator(img_size, max_frame, medium= medium, stdDev= std)
+
+    factory = DataLoaderFactory(UCF_101, t, preprocessed, batch_size, classes = classes)
     
     return factory.getDataLoader(), t
 
@@ -127,7 +139,7 @@ if __name__ == '__main__':
 
     gen.init_weigths()
 
-    dataloader, transformator = getDataloader(clArguments['batch_size'], clArguments['preprocessed'])
+    dataloader, transformator = getDataloader(clArguments['batch_size'], clArguments['preprocessed'], clArguments['classes'])
 
     # Prepare Trainer
     trainer = Trainer(clArguments, dis_i, dis_v, gen, dataloader, transformator)

@@ -47,6 +47,8 @@ class Trainer(nn.Module):
 
         self.dataloader             = dataloader
 
+        self.n_classes              = len(parameters['classes']) if len(parameters['classes']) > 0 else 101
+
         self.wait_between_batches   = 1
         self.wait_between_epochs    = 10
         
@@ -150,7 +152,7 @@ class Trainer(nn.Module):
         # Ask the generator to generate categories recognizable by the discriminator
         l_generator += self.category_criterion(fake_categorical, generated_categories)
 
-        l_generator.backward()
+        l_generator.backward(retain_graph = True)
         opt.step()
 
         return l_generator    
@@ -188,7 +190,6 @@ class Trainer(nn.Module):
 
     def zeros_like(self, tensor, shuffle = False):
         val = self.falseLabel
-
         return torch.FloatTensor(tensor.size()).fill_(val) if not self.cuda else torch.cuda.FloatTensor(tensor.size()).fill_(val)
 
 
@@ -216,7 +217,7 @@ class Trainer(nn.Module):
 
 
     def save_video(self, fake_video, category, epoch):
-        outputdata = (fake_video * self.transformator.stdDev + self.transformator.medium) * 255 #Remove normalization
+        outputdata = ((fake_video * self.transformator.stdDev) + self.transformator.medium) * 255
         outputdata = outputdata.astype(np.uint8)
         file_path = os.path.join(self.generated_path, 'fake_%s_epoch-%d.mp4' % (category.item(), epoch))
         skvideo.io.vwrite(file_path, outputdata)
@@ -226,7 +227,8 @@ class Trainer(nn.Module):
 
         start_time = time()
 
-        l_gen_history = np.zeros(len(self.dataloader)); l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
+        l_gen_history = np.zeros(int(len(self.dataloader) / (self.wasserstein_interval if self.wasserstein_interval else 1)))
+        l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
         
         optimizers = [self.optim_discriminator_i, self.optim_discriminator_v, self.optim_generator]
 
@@ -251,9 +253,9 @@ class Trainer(nn.Module):
                     for model in self.models:
                         model.train()
                     
-                    real_videos = real_videos.cuda() if self.cuda else real_videos
+                    real_videos             = real_videos.cuda() if self.cuda else real_videos; real_videos.requires_grad = True
                     # Target range must be between [0, 100], not [1, 101]
-                    targets                 = targets.cuda() if self.cuda else targets; targets -= 1
+                    targets                 = targets.cuda() if self.cuda else targets;  targets -= 1
 
                     # Train the discriminators
                     ### Train image discriminator
@@ -266,7 +268,7 @@ class Trainer(nn.Module):
                                                         sample_fake_video_batch, self.optim_discriminator_v,
                                                         self.video_batch_size, use_categories= True, shuffle = shuffleLabels)
 
-                    l_gen = 0.0
+                    l_gen = torch.tensor(0.0)
                     # self.interval_train_g_d will be 1 if self.wasserstein_interval is on.
                     if current_epoch % self.interval_train_g_d == 0:
 
@@ -278,8 +280,10 @@ class Trainer(nn.Module):
 
                     print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Accuracy_Dv: {accuracy:.4f} Loss_Gen: {l_gen:.4f}', end='')
                     
-                    l_gen_history[batch_idx] = l_gen;    l_dis_i_history[batch_idx] = l_image_dis;   l_dis_v_history[batch_idx] = l_video_dis
-                    batch_idx_history       += 1
+                    gen_history_idx                 = int(batch_idx/(self.wasserstein_interval if self.wasserstein_interval else 1))
+                    l_gen_history[gen_history_idx]  = l_gen.item() if l_gen.item() > 0 else l_gen_history[gen_history_idx]
+                    l_dis_i_history[batch_idx]      = l_image_dis.item();           l_dis_v_history[batch_idx] = l_video_dis.item()
+                    batch_idx_history              += 1
                     
                     sleep(self.wait_between_batches)
                     

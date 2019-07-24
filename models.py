@@ -129,29 +129,26 @@ class VideoDiscriminator(nn.Module):
         self.n_categories = n_categories
 
         self.main = nn.Sequential(
-            Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
+            #Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
             nn.Conv3d(n_channels, ndf, 4, stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
             nn.LeakyReLU(0.2, inplace=True),
 
-            Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
-            #nn.Dropout3d(),
+            #Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
             nn.Conv3d(ndf, ndf * 2, 4, stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
             nn.BatchNorm3d(ndf * 2),
             nn.LeakyReLU(0.2, inplace=True),
 
-            Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
-            #nn.Dropout3d(),
+            #Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
             nn.Conv3d(ndf * 2, ndf * 4, 4, stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
             nn.BatchNorm3d(ndf * 4),
             nn.LeakyReLU(0.2, inplace=True),
 
-            Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
-            #nn.Dropout3d(),
+            #Noise(use_noise, sigma=noise_sigma, use_gpu= cuda),
             nn.Conv3d(ndf * 4, ndf * 8, 4, stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
             nn.BatchNorm3d(ndf * 8),
             nn.LeakyReLU(0.2, inplace=True),
             
-            nn.Conv3d(ndf * 8, self.n_output_neurons, 4, 3, 0, bias=False),
+            nn.Conv3d(ndf * 8, self.n_output_neurons, 4, 3, 0, bias=False)
         )
     
     def split(self, input):
@@ -501,7 +498,7 @@ def has_file_allowed_extension(filename, extensions):
     return returnValue
 
 
-def make_dataset(dir, class_to_idx, extensions=None):
+def make_dataset(dir, class_to_idx, extensions=None, classes = []):
     videos = []
 
     if os.path.isdir(dir):
@@ -518,6 +515,10 @@ def make_dataset(dir, class_to_idx, extensions=None):
             if not os.path.isdir(d):
                 continue
             for root, _, fnames in sorted(os.walk(d)):
+                if len(classes) > 0:
+                    if not any([element.lower() in root.lower() for element in classes]):
+                        continue
+
                 for fname in sorted(fnames):
                     path = os.path.join(root, fname)
                     if is_valid_file(path):
@@ -537,18 +538,6 @@ def make_dataset(dir, class_to_idx, extensions=None):
                     
     return videos
 
-def loadDict(filepath):
-    dictClassesIdx = {}
-    
-    try:
-        with open(filepath) as file:
-            for line in file:
-                dictClassesIdx[ line.split() [1]] = int( line.split() [0] )
-            
-    except FileNotFoundError as error:
-        print(error)
-        
-    return dictClassesIdx
 
 ## Addition for loading videos avoiding to get Out Of Memory
 
@@ -586,7 +575,7 @@ class UCF_101(Dataset):
         
     """    
     
-    def __init__(self, rootDir, dictClassDir = '', videoHandler = readVideoImageio, supportedExtensions= [], transform= None):
+    def __init__(self, rootDir, dictClassDir = '', videoHandler = readVideoImageio, supportedExtensions= [], transform= None, classes = []):
         
         ucfDictFilename = "classInd.txt"                    #Used to load the file classes.
         ucfTrainTestDirname = "ucfTrainTestlist"            #Used to find the class file.
@@ -598,17 +587,17 @@ class UCF_101(Dataset):
         else:
             self.dictPath = dictClassDir
             
-        self.currentDir = os.path.dirname(__file__)
-        self.rootDir = os.path.join(self.currentDir, rootDir)
-        self.videoHandler = videoHandler
-        self.transform = transform
-        self.videoLengths = {}
+        self.currentDir     = os.path.dirname(__file__)
+        self.rootDir        = os.path.join(self.currentDir, rootDir)
+        self.videoHandler   = videoHandler
+        self.transform      = transform
+        self.videoLengths   = {}
+        self.classes        = classes
         
-        self.class_to_idx = loadDict(self.dictPath)
+        self.class_to_idx   = self.loadDict(self.dictPath)
         
-        self.samples= make_dataset(self.rootDir, self.class_to_idx, supportedExtensions)
+        self.samples        = make_dataset(self.rootDir, self.class_to_idx, supportedExtensions, classes = classes)
         
-
 
     def __len__(self):
         return len(self.samples)
@@ -645,4 +634,29 @@ class UCF_101(Dataset):
         return readVideo, target
 
 
+    def loadDict(self, filepath):
+
+        dictClassesIdx = {}
+
+        try:
+            assert self.classes[0]
+            dictClassesIdx = {self.classes[idx] : idx + 1 for idx in range(len(self.classes))}
+
+        except:
+
+            try:
+                with open(filepath) as file:
+                    for line in file:
+                        dictClassesIdx[ line.split() [1]] = int( line.split() [0] )
+                    
+            except IsADirectoryError as _:
+                classes = glob(os.path.join(filepath, '*'))
+                assert classes[0]
+                classes = [os.path.split(action)[1] for action in classes]
+                dictClassesIdx = {classes[idx] : idx + 1 for idx in range(len(classes))}
+
+            except FileNotFoundError as error:
+                print(error)
+
+        return dictClassesIdx
 #### End of Addition.
