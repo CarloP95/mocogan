@@ -133,17 +133,23 @@ class Trainer(nn.Module):
         image_discriminator.eval()
         video_discriminator.eval()
 
-        # train on images
+        for p in image_discriminator.parameters():
+            p.requires_grad = False
+        
+        for p in video_discriminator.parameters():
+            p.requires_grad = False
 
+        # train on images
         fake_batch, generated_categories = sample_fake_images(self.image_batch_size)
+
         fake_labels, fake_categorical = image_discriminator(fake_batch)
         all_ones = self.ones_like(fake_labels, shuffle)
 
         l_generator = self.gan_criterion(fake_labels, all_ones)
 
         # train on videos
-
         fake_batch, generated_categories = sample_fake_videos(self.video_batch_size)
+            
         fake_labels, fake_categorical = video_discriminator(fake_batch)
         all_ones = self.ones_like(fake_labels, shuffle)
 
@@ -152,7 +158,7 @@ class Trainer(nn.Module):
         # Ask the generator to generate categories recognizable by the discriminator
         l_generator += self.category_criterion(fake_categorical, generated_categories)
 
-        l_generator.backward(retain_graph = True)
+        l_generator.backward()
         opt.step()
 
         return l_generator    
@@ -227,8 +233,7 @@ class Trainer(nn.Module):
 
         start_time = time()
 
-        l_gen_history = np.zeros(int(len(self.dataloader) / (self.wasserstein_interval if self.wasserstein_interval else 1)))
-        l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
+        l_gen_history = np.zeros(len(self.dataloader)); l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
         
         optimizers = [self.optim_discriminator_i, self.optim_discriminator_v, self.optim_generator]
 
@@ -252,7 +257,13 @@ class Trainer(nn.Module):
 
                     for model in self.models:
                         model.train()
+
+                    for p in self.discriminator_i.parameters():
+                        p.requires_grad = True
                     
+                    for p in self.discriminator_v.parameters():
+                        p.requires_grad = True
+
                     real_videos             = real_videos.cuda() if self.cuda else real_videos; real_videos.requires_grad = True
                     # Target range must be between [0, 100], not [1, 101]
                     targets                 = targets.cuda() if self.cuda else targets;  targets -= 1
@@ -280,7 +291,7 @@ class Trainer(nn.Module):
 
                     print(f'\rBatch [{batch_idx + 1}/{total_batch}] Loss_Di: {l_image_dis:.4f} Loss_Dv: {l_video_dis:.4f} Accuracy_Dv: {accuracy:.4f} Loss_Gen: {l_gen:.4f}', end='')
                     
-                    gen_history_idx                 = int(batch_idx/(self.wasserstein_interval if self.wasserstein_interval else 1))
+                    gen_history_idx                 = math.ceil(batch_idx/(self.wasserstein_interval if self.wasserstein_interval else 1))
                     l_gen_history[gen_history_idx]  = l_gen.item() if l_gen.item() > 0 else l_gen_history[gen_history_idx]
                     l_dis_i_history[batch_idx]      = l_image_dis.item();           l_dis_v_history[batch_idx] = l_video_dis.item()
                     batch_idx_history              += 1
@@ -294,7 +305,7 @@ class Trainer(nn.Module):
             sleep(self.wait_between_epochs)
 
             if current_epoch % self.interval_log_stat == 0:
-                print(f'\n[{current_epoch}/{self.n_epochs}] ({self.timeSince(start_time)}) Loss_Di: {l_dis_i_history.mean():.4f} Loss_Dv: {l_dis_v_history.mean():.4f} Loss_Generator: {l_gen_history.mean():.4f}')
+                print(f'\n[{current_epoch}/{self.n_epochs}] ({self.timeSince(start_time)}) Loss_Di: {l_dis_i_history.mean():.4f} Loss_Dv: {l_dis_v_history.mean():.4f} Loss_Generator: {l_gen_history[l_gen_history > 0].mean():.4f}')
             
             if current_epoch % self.interval_train_g_d == 0:
                 self.generator.eval()
