@@ -96,7 +96,7 @@ def getCLArguments(parser):
     }
 
 
-def createModels(parameters):
+def createModels(parameters, dict_For_Classes = None):
 
     n_classes  = len(parameters['classes'])
 
@@ -108,7 +108,7 @@ def createModels(parameters):
     cuda = parameters['cuda']
 
     return Discriminator_I(), VideoDiscriminator(n_channels, dim_z_category, cuda = cuda), \
-                 VideoGenerator(n_channels, dim_z_content, dim_z_category, dim_z_motion, video_lenght, cuda)
+                 VideoGenerator(n_channels, dim_z_content, dim_z_category, dim_z_motion, video_lenght, cuda, class_to_idx = dict_For_Classes)
 
 
 def getDataloader(batch_size, preprocessed, classes):
@@ -135,11 +135,13 @@ if __name__ == '__main__':
 
     clArguments = getCLArguments(parser)
 
-    dis_i, dis_v, gen= createModels(clArguments)
+    dataloader, transformator = getDataloader(clArguments['batch_size'], clArguments['preprocessed'], clArguments['classes'])
+
+    dict_For_Classes = dataloader.dataset.class_to_idx
+
+    dis_i, dis_v, gen= createModels(clArguments, dict_For_Classes)
 
     gen.init_weigths()
-
-    dataloader, transformator = getDataloader(clArguments['batch_size'], clArguments['preprocessed'], clArguments['classes'])
 
     # Prepare Trainer
     trainer = Trainer(clArguments, dis_i, dis_v, gen, dataloader, transformator)

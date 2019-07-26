@@ -11,8 +11,8 @@ class Trainer(nn.Module):
 
     def __init__(self, parameters, discriminator_i, discriminator_v, generator, dataloader, transformator,
                  optimParameters = {
-                     "dis_i": { "optim": optim.Adam, "lr": 0.0002, "betas": (0.5, 0.999), "weight_decay": 0.00001 }, 
-                     "dis_v": { "optim": optim.Adam, "lr": 0.0002, "betas": (0.5, 0.999), "weight_decay": 0.00001 },
+                     "dis_i": { "optim": optim.Adam, "lr": 0.00002, "betas": (0.5, 0.999), "weight_decay": 0.00001 }, 
+                     "dis_v": { "optim": optim.Adam, "lr": 0.00002, "betas": (0.5, 0.999), "weight_decay": 0.00001 },
                      "gen_i": { "optim": optim.Adam, "lr": 0.0002, "betas": (0.5, 0.999), "weight_decay": 0.00001 }
                      }, 
                  category_criterion = nn.CrossEntropyLoss, gan_criterion = nn.BCEWithLogitsLoss 
@@ -320,3 +320,25 @@ class Trainer(nn.Module):
 
             if current_epoch % self.interval_save == 0:
                 self.checkpoint(current_epoch)
+
+
+
+def loadState(epoch, model, optimizer = None, path = ''):
+        
+    if epoch != 0:
+
+        loadEpoch = epoch
+        addString = f"_epoch-{loadEpoch}" if loadEpoch is not None else ""
+        modelName = f"{model.__class__.__name__}"
+        
+        model.load_state_dict(torch.load(path + f'/{modelName}{addString}.model'))
+
+        if optimizer:
+            optimizer.load_state_dict(torch.load(path + f'/{modelName}{addString}.state'))
+
+
+def save_video(fake_video, category, epoch, stdDev = 0, mean = 0, path = None):
+        outputdata = ((fake_video * stdDev) + mean) * 255
+        outputdata = outputdata.astype(np.uint8)
+        file_path = os.path.join(path, 'fake_%s_epoch-%d.mp4' % (category, epoch))
+        skvideo.io.vwrite(file_path, outputdata)
