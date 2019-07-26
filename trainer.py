@@ -48,6 +48,8 @@ class Trainer(nn.Module):
         self.dataloader             = dataloader
 
         self.n_classes              = len(parameters['classes']) if len(parameters['classes']) > 0 else 101
+        self.clamp_lower            = -0.1
+        self.clamp_upper            =  0.1
 
         self.wait_between_batches   = 1
         self.wait_between_epochs    = 10
@@ -233,6 +235,10 @@ class Trainer(nn.Module):
 
         start_time = time()
 
+        is_wasserstein_gan = self.i_wasserstein != 0
+        self.i_wasserstein+= 1 if not is_wasserstein_gan else 0
+        discriminators     = [self.discriminator_i, self.discriminator_v]
+
         l_gen_history = np.zeros(len(self.dataloader)); l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
         
         optimizers = [self.optim_discriminator_i, self.optim_discriminator_v, self.optim_generator]
@@ -258,11 +264,11 @@ class Trainer(nn.Module):
                     for model in self.models:
                         model.train()
 
-                    for p in self.discriminator_i.parameters():
-                        p.requires_grad = True
-                    
-                    for p in self.discriminator_v.parameters():
-                        p.requires_grad = True
+                    for dis in discriminators:
+                        for p in dis.parameters():
+                            p.requires_grad = True
+                            if is_wasserstein_gan:
+                                p.data.clamp_(self.clamp_lower, self.clamp_upper)
 
                     real_videos             = real_videos.cuda() if self.cuda else real_videos; real_videos.requires_grad = True
                     # Target range must be between [0, 100], not [1, 101]
@@ -285,7 +291,7 @@ class Trainer(nn.Module):
 
                         # Train generator
                         ### If self.wasserstein_interval is on, only on some batches.
-                        if batch_idx_history % self.wasserstein_interval == 0:
+                        if is_wasserstein_gan and batch_idx_history % self.wasserstein_interval == 0:
                             l_gen = self.train_generator(self.discriminator_i, self.discriminator_v,
                                                         sample_fake_image_batch, sample_fake_video_batch,  self.optim_generator, shuffle = shuffleLabels)
 
