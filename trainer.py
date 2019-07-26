@@ -239,7 +239,8 @@ class Trainer(nn.Module):
         self.i_wasserstein+= 1 if not is_wasserstein_gan else 0
         discriminators     = [self.discriminator_i, self.discriminator_v]
 
-        l_gen_history = np.zeros(len(self.dataloader)); l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
+        l_gen_history   = np.zeros(len(self.dataloader)); l_dis_v_history = np.zeros(len(self.dataloader)); l_dis_i_history = np.zeros(len(self.dataloader))
+        a_dis_v_history = np.zeros(len(self.dataloader))
         
         optimizers = [self.optim_discriminator_i, self.optim_discriminator_v, self.optim_generator]
 
@@ -300,6 +301,7 @@ class Trainer(nn.Module):
                     gen_history_idx                 = math.ceil(batch_idx/(self.wasserstein_interval if self.wasserstein_interval else 1))
                     l_gen_history[gen_history_idx]  = l_gen.item() if l_gen.item() > 0 else l_gen_history[gen_history_idx]
                     l_dis_i_history[batch_idx]      = l_image_dis.item();           l_dis_v_history[batch_idx] = l_video_dis.item()
+                    a_dis_v_history[batch_idx]      = accuracy.item()
                     batch_idx_history              += 1
                     
                     sleep(self.wait_between_batches)
@@ -311,7 +313,7 @@ class Trainer(nn.Module):
             sleep(self.wait_between_epochs)
 
             if current_epoch % self.interval_log_stat == 0:
-                print(f'\n[{current_epoch}/{self.n_epochs}] ({self.timeSince(start_time)}) Loss_Di: {l_dis_i_history.mean():.4f} Loss_Dv: {l_dis_v_history.mean():.4f} Loss_Generator: {l_gen_history[l_gen_history > 0].mean():.4f}')
+                print(f'\n[{current_epoch}/{self.n_epochs}] ({self.timeSince(start_time)}) Loss_Di: {l_dis_i_history.mean():.4f} Loss_Dv: {l_dis_v_history.mean():.4f} Accuracy_Dv: {a_dis_v_history.mean():.4f} Loss_Generator: {l_gen_history[l_gen_history > 0].mean():.4f}')
             
             if current_epoch % self.interval_train_g_d == 0:
                 self.generator.eval()
