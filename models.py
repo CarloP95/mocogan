@@ -311,7 +311,7 @@ class Flatten(nn.Module):
 
 class VideoGenerator(nn.Module):
     def __init__(self, n_channels, dim_z_content, dim_z_category, dim_z_motion,
-                 video_length, cuda = False, ngf=64):
+                 video_length, cuda = False, ngf=64, class_to_idx = None):
         super(VideoGenerator, self).__init__()
 
         self.n_channels = n_channels
@@ -320,6 +320,8 @@ class VideoGenerator(nn.Module):
         self.dim_z_motion = dim_z_motion
         self.video_length = video_length
         self.gpu = cuda
+
+        self.class_to_idx = class_to_idx
 
         dim_z = dim_z_motion + dim_z_category + dim_z_content
 
@@ -372,13 +374,18 @@ class VideoGenerator(nn.Module):
 
         return z_m
 
-    def sample_z_categ(self, num_samples, video_len):
+    def sample_z_categ(self, num_samples, video_len, category = None):
         video_len = video_len if video_len is not None else self.video_length
 
         if self.dim_z_category <= 0:
             return None, np.zeros(num_samples)
 
-        classes_to_generate = np.random.randint(self.dim_z_category, size=num_samples)
+        if category:
+            classes_to_generate = np.array(category)
+
+        else:
+            classes_to_generate = np.random.randint(self.dim_z_category, size=num_samples)
+
         one_hot = np.zeros((num_samples, self.dim_z_category), dtype=np.float32)
         one_hot[np.arange(num_samples), classes_to_generate] = 1
         one_hot_video = np.repeat(one_hot, video_len, axis=0)
@@ -402,9 +409,9 @@ class VideoGenerator(nn.Module):
 
         return Variable(content)
 
-    def sample_z_video(self, num_samples, video_len=None):
+    def sample_z_video(self, num_samples, video_len=None, category = None):
         z_content = self.sample_z_content(num_samples, video_len)
-        z_category, z_category_labels = self.sample_z_categ(num_samples, video_len)
+        z_category, z_category_labels = self.sample_z_categ(num_samples, video_len, category)
         z_motion = self.sample_z_m(num_samples, video_len)
 
         if z_category is not None:
@@ -414,10 +421,10 @@ class VideoGenerator(nn.Module):
 
         return z, z_category_labels
 
-    def sample_videos(self, num_samples, video_len=None):
+    def sample_videos(self, num_samples, video_len=None, category = None):
         video_len = video_len if video_len is not None else self.video_length
 
-        z, z_category_labels = self.sample_z_video(num_samples, video_len)
+        z, z_category_labels = self.sample_z_video(num_samples, video_len, category)
 
         h = self.main(z.view(z.size(0), z.size(1), 1, 1))
         h = h.view( int( h.size(0) / video_len), video_len, self.n_channels, h.size(3), h.size(3))
@@ -444,6 +451,15 @@ class VideoGenerator(nn.Module):
 
     def get_iteration_noise(self, num_samples):
         return Variable(torch.cuda.FloatTensor(num_samples, self.dim_z_motion).normal_()) if self.gpu else Variable(torch.FloatTensor(num_samples, self.dim_z_motion).normal_())
+
+
+    def getCorrectClassName(self, classIdx):
+        if self.class_to_idx:
+            for action, index in self.class_to_idx.items():
+                if index == classIdx:
+                    return action
+        else:
+            raise ValueError(f'No dictionary found on this instance of {self.__class__.__name__}')
 
 ## Addition for loading target & videoPath from UCF-101 class.
    
